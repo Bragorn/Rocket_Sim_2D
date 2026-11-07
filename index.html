@@ -4,15 +4,12 @@
 <meta charset="utf-8">
 <title>Rocket Sim</title>
 <style>
-  body { margin: 0; background: #101418; color: #e8eef2; font: 13px/1.4 monospace; padding: 8px 12px; overflow: hidden; }
-  canvas { display: block; margin: 6px 0; border: 1px solid rgba(255,255,255,0.15); }
-  pre { white-space: pre-wrap; margin: 0; max-height: 120px; overflow: hidden; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #101418; color: #e8eef2; font: 13px/1.4 monospace; }
+  canvas { display: block; }
 </style>
 </head>
 <body>
-<div><b>Rocket Sim.</b> W/S throttle, Z full, X cut, A/D steer, T damping, R reset, M map view, + / - / wheel zoom</div>
 <canvas id="view"></canvas>
-<pre id="log"></pre>
 
 <!-- Plain scripts, loaded in this order. No modules, so it opens by double-clicking this file. -->
 <script src="js/planck.min.js"></script>  <!-- the physics engine -->
@@ -20,10 +17,11 @@
 <script src="js/settings.js"></script>    <!-- every number you tune -->
 <script src="js/parts.js"></script>       <!-- the rocket as data: parts, shapes, forces -->
 <script src="js/controls.js"></script>    <!-- throttle, steering, damping: the ONE place the sim reads controls from -->
+<script src="js/aero.js"></script>        <!-- air density, drag, fins, stability -->
 <script src="js/world.js"></script>       <!-- builds the planet, bodies, joints, gravity -->
 <script src="js/sim.js"></script>         <!-- one physics step -->
 <script src="js/orbit.js"></script>       <!-- apoapsis / periapsis / period maths -->
-<script src="js/render.js"></script>      <!-- flight view, map view, readouts -->
-<script src="js/main.js"></script>        <!-- loop, view keys, reset; starts everything -->
+<script src="js/render.js"></script>      <!-- flight view, map view, readouts, bottom bar -->
+<script src="js/main.js"></script>        <!-- loop, view keys, time warp, reset; starts everything -->
 </body>
 </html>

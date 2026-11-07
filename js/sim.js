@@ -47,6 +47,7 @@ function stepSim() {
   addGravity(w);
   updateControls(DT);
   applyPartForces(DT);
+  applyAero();
 
   // reaction wheel, with optional damping of any spin
   let tq = controls.steer * WHEEL_MAX;
@@ -55,6 +56,7 @@ function stepSim() {
 
   w.step(DT, VEL_IT, POS_IT);
   sim.t += DT;
+  updateFlightStats();
 
   const inv = 1 / DT;                                 // joint loads are tracked for later (not shown right now)
   for (const j of sim.joints) {

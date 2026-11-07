@@ -23,6 +23,15 @@ const WHEEL_MAX = 6000;              // reaction wheel torque, N*m
 const DAMP_K = 4000;                 // how hard "rotation damping" fights spin (N*m per rad/s)
 const TANK_DRY = 400, FUEL_FULL = 1600;   // kg, kg
 
+/* ---- atmosphere ---- */
+const RHO0 = 1.225;                  // air density at the ground, kg/m3
+const SCALE_HEIGHT = 8500;           // the air thins by a factor of e every 8.5 km
+
+/* ---- fins ---- */
+const FIN_CN = 5.0;                  // how hard a fin pushes sideways per radian of angle (bigger = stronger)
+const FIN_MASS = 30;                 // kg each
+const FIN_STALL = 0.35;              // past about 20 degrees of angle the fin stops gaining push
+
 /* ---- display ---- */
 const REF_OFFSET = 3.3;              // height of the tank's centre when the rocket stands on its legs. Altitudes
                                      // are shown minus this, so the pad reads 0

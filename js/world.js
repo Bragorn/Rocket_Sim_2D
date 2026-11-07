@@ -9,12 +9,6 @@
 
 let sim = null;
 
-function polyArea(v) {
-  let a = 0;
-  for (let i = 0; i < v.length; i++) { const p = v[i], q = v[(i + 1) % v.length]; a += p.x * q.y - q.x * p.y; }
-  return Math.abs(a) / 2;
-}
-
 function addGravity(world) {         // pull every dynamic body toward the planet's center (0, 0)
   for (let b = world.getBodyList(); b; b = b.getNext()) {
     if (!b.isDynamic()) continue;
@@ -34,9 +28,11 @@ function buildWorld() {
   for (const def of ROCKET.parts) {   // one body per part
     const verts = def.verts.map(function (v) { return P(v[0], v[1]); });
     const body = world.createBody({ type: "dynamic", position: P(def.at[0], base + def.at[1]) });
-    body.createFixture({ shape: new planck.Polygon(verts), density: def.mass / polyArea(verts), friction: 0.8, restitution: 0 });
+    // filterGroupIndex -1: the parts of one rocket never collide with each other (only with the ground)
+    body.createFixture({ shape: new planck.Polygon(verts), density: def.mass / polyArea(verts), friction: 0.8, restitution: 0, filterGroupIndex: -1 });
     const part = { def: def, name: def.name, color: def.color, body: body, verts: verts,
                    forces: (def.forces || []).map(function (f) { return Object.assign({ now: 0, angle: 0 }, f); }) };   // now = force this step, angle = gimbal
+    for (const f of part.forces) prepareAero(part, f);
     parts.push(part);
     byId[def.id] = part;
   }
@@ -49,10 +45,13 @@ function buildWorld() {
   }
 
   const hull = parts.find(function (p) { return p.def.hull; });
-  sim = { world: world, ground: ground, parts: parts, joints: joints, hull: hull,
+  let hx0 = Infinity, hx1 = -Infinity;
+  for (const v of hull.verts) { hx0 = Math.min(hx0, v.x); hx1 = Math.max(hx1, v.x); }
+  sim = { world: world, ground: ground, parts: parts, joints: joints, hull: hull, hullWidth: hx1 - hx0,
           hullFixture: hull.body.getFixtureList(), hullArea: polyArea(hull.verts),
           fuelDry: hull.def.fuel.dry, fuelFull: hull.def.fuel.full, fuel: hull.def.fuel.full,
-          thrust: 0, airborne: false, t: 0, emptyLogged: false };
+          thrust: 0, airborne: false, t: 0, emptyLogged: false,
+          rho: RHO0, q: 0, maxQ: 0, aoa: 0 };
 
   world.on("begin-contact", function (ct) {          // the first touch after being in the air gets reported
     const A = ct.getFixtureA().getBody(), B = ct.getFixtureB().getBody();
