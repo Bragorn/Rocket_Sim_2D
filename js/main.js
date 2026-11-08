@@ -56,6 +56,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+for (const msg of checkRules(ROCKET.parts)) log("RULE BROKEN: " + msg);   // the rocket must follow rules.js
 resize();
 resetAll();
 requestAnimationFrame(frame);

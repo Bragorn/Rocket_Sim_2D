@@ -71,8 +71,15 @@ function totalMass() {
   return sim.parts.reduce(function (m, q) { return m + q.body.getMass(); }, 0);
 }
 
-function maxThrust() {               // thrust of all engines at full throttle, N
+function maxThrust() {               // thrust of all engines at full throttle, in the air pressure right now, N
+  const pf = sim.rho / RHO0;
   let t = 0;
-  for (const p of sim.parts) for (const f of p.forces) if (f.kind === "thrust") t += f.max;
+  for (const p of sim.parts) for (const f of p.forces) if (f.kind === "thrust") t += f.vac - (f.vac - f.sl) * pf;
   return t;
+}
+
+function vacIsp() {                  // efficiency of the engines together in vacuum, s (0 = no engines)
+  let thrust = 0, flow = 0;
+  for (const p of sim.parts) for (const f of p.forces) if (f.kind === "thrust") { thrust += f.vac; flow += f.mdot; }
+  return flow > 0 ? thrust / (flow * G0) : 0;
 }

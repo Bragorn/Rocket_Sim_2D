@@ -3,7 +3,8 @@
 /* =====================================================================
    SETTINGS  (js/settings.js)
    Every number you will want to tune. SI units: meters, kilograms,
-   seconds, newtons.
+   seconds, newtons. The numbers that DEFINE parts (fuel density, engine
+   weight, tank walls...) are in rules.js, not here.
    ===================================================================== */
 
 /* ---- planet and physics ---- */
@@ -11,25 +12,20 @@ const R = 600000;                    // planet radius, m
 const G0 = 9.81;                     // surface gravity, m/s2
 const MU = G0 * R * R;               // gravity strength: force = m * MU / r^2
 const DT = 1 / 60;                   // physics step, s
-const VEL_IT = 16, POS_IT = 6;       // solver effort per step
+const VEL_IT = 16, POS_IT = 6;       // solver effort per step (more = stiffer joints, slower)
 
-/* ---- engine and steering ---- */
-const MAX_THRUST = 50000;            // N at full throttle
-const MIN_THROTTLE = 0.2;            // the lowest the engine can run once it is lit (fraction of max thrust)
-const ISP = 300;                     // seconds. Fuel burned per second = thrust / (ISP * 9.81)
-const GIMBAL_MAX = 6 * Math.PI / 180;// how far the engine can swivel, radians
+/* ---- steering ---- */
+const GIMBAL_MAX = 6 * Math.PI / 180;// how far an engine can swivel, radians
 const GIMBAL_RATE = 1.0;             // how fast it swivels, rad/s
-const WHEEL_MAX = 6000;              // reaction wheel torque, N*m
-const DAMP_K = 4000;                 // how hard "rotation damping" fights spin (N*m per rad/s)
-const TANK_DRY = 400, FUEL_FULL = 1600;   // kg, kg
+const WHEEL_MAX = 36000;             // reaction wheel torque, N*m
+const DAMP_K = 24000;                // how hard "rotation damping" fights spin (N*m per rad/s)
 
 /* ---- atmosphere ---- */
 const RHO0 = 1.225;                  // air density at the ground, kg/m3
-const SCALE_HEIGHT = 8500;           // the air thins by a factor of e every 8.5 km
+const SCALE_HEIGHT = 8500;           // the air thins by a factor of e every 8.5 km. Air pressure thins the same way
 
 /* ---- fins ---- */
 const FIN_CN = 5.0;                  // how hard a fin pushes sideways per radian of angle (bigger = stronger)
-const FIN_MASS = 30;                 // kg each
 const FIN_STALL = 0.35;              // past about 20 degrees of angle the fin stops gaining push
 
 /* ---- display ---- */

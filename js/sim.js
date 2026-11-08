@@ -7,19 +7,24 @@
    bookkeeping. Nothing here knows about pixels.
    ===================================================================== */
 
-/* Every part can carry a list of forces (see parts.js). Today: "thrust".
-   Wings, fins, parachutes and wheels become more kinds in the loop below. */
+/* Every part can carry a list of forces (see parts.js). Here: "thrust". The aero kinds are in aero.js.
+   An engine's thrust falls as the air gets thicker: F = vacuum thrust - (vacuum - sea level) x pressure,
+   where pressure is 1 at the ground and thins exactly like the air density. Fuel use does not change,
+   so the efficiency (Isp) is lower at sea level than in space. */
 function applyPartForces(dt) {
-  let want = 0;                                       // total thrust asked for this step
+  const pf = sim.rho / RHO0;                          // air pressure compared with the ground
+  let want = 0, flow = 0;                             // total thrust asked for this step, and fuel burned per second
   const lit = controls.throttle > 0 && sim.fuel > 0;
   for (const p of sim.parts) for (const f of p.forces) {
     if (f.kind !== "thrust") continue;
-    f.now = lit ? f.max * (f.minThrottle + (1 - f.minThrottle) * controls.throttle) : 0;
+    f.level = lit ? f.minThrottle + (1 - f.minThrottle) * controls.throttle : 0;   // an engine cannot run below minThrottle
+    f.now = f.level * (f.vac - (f.vac - f.sl) * pf);
     want += f.now;
+    flow += f.level * f.mdot;
   }
 
   if (want > 0) {                                     // burn fuel, and make the tank lighter
-    sim.fuel = Math.max(0, sim.fuel - want / (ISP * G0) * dt);
+    sim.fuel = Math.max(0, sim.fuel - flow * dt);
     sim.hullFixture.setDensity((sim.fuelDry + sim.fuel) / sim.hullArea);
     sim.hull.body.resetMassData();
     if (sim.fuel === 0 && !sim.emptyLogged) {

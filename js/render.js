@@ -102,8 +102,8 @@ function drawFlight(alt, phi) {
   for (const part of sim.parts) for (const f of part.forces) {   // a flame for every engine that is burning
     if (f.kind !== "thrust" || f.now <= 0) continue;
     const a = part.body.getAngle() + f.angle, dx = -Math.sin(a), dy = Math.cos(a);
-    const n = part.body.getWorldPoint(P(f.at[0], f.at[1])), L = (1.2 + 4 * f.now / f.max) * (0.85 + Math.random() * 0.3);
-    const a1 = T({ x: n.x + dy * 0.28, y: n.y - dx * 0.28 }), a2 = T({ x: n.x - dy * 0.28, y: n.y + dx * 0.28 });
+    const n = part.body.getWorldPoint(P(f.at[0], f.at[1])), L = (1.2 + 4 * f.now / f.vac) * f.scale * (0.85 + Math.random() * 0.3), wd = 0.28 * f.scale;   // bigger engines, bigger flames
+    const a1 = T({ x: n.x + dy * wd, y: n.y - dx * wd }), a2 = T({ x: n.x - dy * wd, y: n.y + dx * wd });
     const tip = T({ x: n.x - dx * L, y: n.y - dy * L });
     c.fillStyle = "#f1c40f"; c.beginPath(); c.moveTo(a1[0], a1[1]); c.lineTo(tip[0], tip[1]); c.lineTo(a2[0], a2[1]); c.closePath(); c.fill();
   }
@@ -195,9 +195,9 @@ function drawBar(info) {
   const cal = info.cal;
   const stab = cal === null ? "none" : cal.toFixed(1) + " cal" + (cal < 0 ? "  UNSTABLE" : cal < 0.5 ? "  marginal" : "");
   c.font = "11px monospace"; c.textAlign = "left"; c.textBaseline = "top"; c.fillStyle = "#e8eef2";
-  const cols = [[190, ["Mass       " + info.mass.toFixed(0) + " kg", "Delta-v    " + info.dv.toFixed(0) + " m/s", "T/W        " + info.twr.toFixed(2), "Stability  " + stab]],
+  const cols = [[190, ["Mass       " + info.mass.toFixed(0) + " kg", "Delta-v vac " + info.dv.toFixed(0) + " m/s", "T/W        " + info.twr.toFixed(2), "Stability  " + stab]],
                 [395, ["Tilt       " + info.tilt.toFixed(1) + " deg", "AoA        " + sim.aoa.toFixed(1) + " deg", "Damping    " + (controls.damping ? "ON" : "off"), "Time       " + sim.t.toFixed(1) + " s"]],
-                [555, ["Air        " + sim.rho.toFixed(3) + " kg/m3", "Dyn press  " + (sim.q / 1000).toFixed(2) + " kPa", "Max Q      " + (sim.maxQ / 1000).toFixed(2) + " kPa", ""]],
+                [555, ["Air        " + sim.rho.toFixed(3) + " kg/m3", "Dyn press  " + (sim.q / 1000).toFixed(2) + " kPa", "Max Q      " + (sim.maxQ / 1000).toFixed(2) + " kPa", "Thrust     " + (sim.thrust / 1000).toFixed(0) + " kN"]],
                 [720, ["View  " + (mapMode ? "MAP" : "flight"), "Warp  " + warp + "x" + (warpActual < warp * 0.9 ? " (running " + warpActual.toFixed(1) + "x)" : ""), "", ""]]];
   for (const col of cols) for (let i = 0; i < col[1].length; i++) c.fillText(col[1][i], col[0], y0 + 8 + i * 14);
 
@@ -225,7 +225,7 @@ function draw() {
   const speed = Math.hypot(v.x, v.y), vert = v.x * ux + v.y * uy, side = v.x * ex + v.y * ey;
   let tilt = (fb.getAngle() + phi) * 180 / Math.PI; tilt = ((tilt + 180) % 360 + 360) % 360 - 180;
   const mass = totalMass();
-  const dv = ISP * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
+  const dv = vacIsp() * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
   const twr = maxThrust() / (mass * MU / (r * r));
   const peAlt = o.rp - R - REF_OFFSET;
 
