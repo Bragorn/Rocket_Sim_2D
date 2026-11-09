@@ -208,7 +208,7 @@ function drawBar(info) {
   }
 
   c.font = "10px monospace"; c.textBaseline = "bottom"; c.fillStyle = "rgba(255,255,255,0.55)";
-  c.fillText("W/S throttle  Z full  X cut  A/D steer  T damping  R reset  M map  + - wheel zoom  < > time warp", 190, y0 + BAR_H - 5);
+  c.fillText("W/S throttle  Z full  X cut  A/D steer  T damping  R reset  M map  B builder  + - wheel zoom  < > time warp", 190, y0 + BAR_H - 5);
 }
 
 function draw() {

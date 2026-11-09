@@ -32,6 +32,7 @@ window.addEventListener("keydown", function (e) {
   if (e.repeat) return;
   if (e.code === "KeyR") resetAll();
   else if (e.code === "KeyM") toggleMap();
+  else if (e.code === "KeyB") location.href = "builder.html" + designToHash(currentDesign);
   else if (e.code === "Period") setWarp(warpI + 1);
   else if (e.code === "Comma") setWarp(warpI - 1);
 });
@@ -58,6 +59,7 @@ function frame(now) {
 
 const launched = designFromHash(location.hash);                 // the builder opens this page with the design in the address
 for (const msg of launched.problems) log("DESIGN: " + msg);
+let currentDesign = launched.design || DESIGN;                      // what is on the pad now (B sends it back to the builder)
 if (launched.design) ROCKET = assemble(launched.design);
 for (const msg of checkRules(ROCKET.parts)) log("RULE BROKEN: " + msg);   // the rocket must follow rules.js
 resize();

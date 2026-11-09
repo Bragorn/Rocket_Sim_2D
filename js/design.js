@@ -27,14 +27,14 @@ const DESIGN = {
 };
 
 /* ---- assembling ---- */
-function assemble(design) {
+function assemble(design, opts) {      // opts.keepFrame: leave the root where it is (the builder wants a rocket that does not jump around)
   const built = {}, parts = [];
   let hull = null;
   for (const d of design.parts) {
     const type = PART_TYPES[d.type];
     if (type.kind === "stack") {
       const def = type.make(d), p = d.parent ? built[d.parent] : null;
-      def.id = d.id;
+      def.id = d.id; def.designId = d.id;
       if (!p) def.at = [0, def.length / 2];                                    // the root; everything is moved so the lowest point is at 0 below
       else if (d.anchor === "top") {
         def.at = [p.at[0] + (d.dx || 0), p.at[1] + p.length / 2 + def.length / 2];
@@ -49,16 +49,18 @@ function assemble(design) {
       const p = built[d.parent], jy = p.at[1] - p.length / 2 + d.y;
       for (const side of (d.side ? [d.side] : [-1, 1])) {
         const def = type.make(d, side, { px: p.at[0], half: p.width / 2, jy: jy, parent: p });
-        def.id = d.id + (side < 0 ? "L" : "R");
+        def.id = d.id + (side < 0 ? "L" : "R"); def.designId = d.id;
         def.name = (side < 0 ? "left " : "right ") + type.label.toLowerCase();
         def.joint.to = p.id;
         parts.push(def);
       }
     }
   }
-  let low = Infinity;                                                          // move everything so the lowest point of the rocket is at height 0
-  for (const def of parts) for (const v of def.verts) low = Math.min(low, def.at[1] + v[1]);
-  for (const def of parts) { def.at[1] -= low; if (def.joint) def.joint.at[1] -= low; }
+  if (!(opts && opts.keepFrame)) {
+    let low = Infinity;                                                        // move everything so the lowest point of the rocket is at height 0
+    for (const def of parts) for (const v of def.verts) low = Math.min(low, def.at[1] + v[1]);
+    for (const def of parts) { def.at[1] -= low; if (def.joint) def.joint.at[1] -= low; }
+  }
   return { parts: parts, hull: hull };
 }
 
@@ -72,8 +74,9 @@ function inRange(v, p) {
   return Math.abs(k - Math.round(k)) < 1e-9;
 }
 
-/* Returns a list of what is wrong with a design (empty = it can launch). */
-function validateDesign(design) {
+/* Returns a list of what is wrong with a design (empty = it can launch).
+   partial = true is for a design still being built: it skips "needs a tank / an engine". */
+function validateDesign(design, partial) {
   if (!design || !Array.isArray(design.parts) || design.parts.length === 0) return ["the design has no parts"];
   const bad = [], seen = {}, made = {}, groups = {};
   let tanks = 0, engines = 0;
@@ -126,8 +129,8 @@ function validateDesign(design) {
       }
     }
   }
-  if (tanks === 0) bad.push("the rocket needs a tank");
-  if (engines === 0) bad.push("the rocket needs an engine");
+  if (!partial && tanks === 0) bad.push("the rocket needs a tank");
+  if (!partial && engines === 0) bad.push("the rocket needs an engine");
   if (bad.length === 0) for (const m of checkRules(assemble(design).parts)) bad.push(m);
   return bad;
 }
