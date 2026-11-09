@@ -147,11 +147,11 @@ function drawMap(o) {                                        // the whole planet
   c.font = "11px monospace"; c.textBaseline = "middle"; c.textAlign = "left";
   const pe = M(o.rp * o.ex, o.rp * o.ey);
   c.fillStyle = "#e8eef2"; c.beginPath(); c.arc(pe[0], pe[1], 3, 0, 6.2832); c.fill();
-  c.fillText("Pe " + fmtAlt(o.rp - R - REF_OFFSET), pe[0] + 7, pe[1]);
+  c.fillText("Pe " + fmtAlt(o.rp - R - sim.refOffset), pe[0] + 7, pe[1]);
   if (o.bound) {
     const ap = M(-o.ra * o.ex, -o.ra * o.ey);
     c.beginPath(); c.arc(ap[0], ap[1], 3, 0, 6.2832); c.fill();
-    c.fillText("Ap " + fmtAlt(o.ra - R - REF_OFFSET), ap[0] + 7, ap[1]);
+    c.fillText("Ap " + fmtAlt(o.ra - R - sim.refOffset), ap[0] + 7, ap[1]);
   }
 
   const p = sim.hull.body.getPosition(), a = sim.hull.body.getAngle();   // the rocket: an arrow pointing the way its nose points
@@ -227,12 +227,12 @@ function draw() {
   const mass = totalMass();
   const dv = vacIsp() * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
   const twr = maxThrust() / (mass * MU / (r * r));
-  const peAlt = o.rp - R - REF_OFFSET;
+  const peAlt = o.rp - R - sim.refOffset;
 
   drawPanel([
-    "Altitude   " + fmtAlt(alt - REF_OFFSET),
+    "Altitude   " + fmtAlt(alt - sim.refOffset),
     "Speed      " + speed.toFixed(0) + " m/s  (up " + vert.toFixed(0) + ", along " + side.toFixed(0) + ")",
-    "Apoapsis   " + fmtAlt(o.ra - R - REF_OFFSET),
+    "Apoapsis   " + fmtAlt(o.ra - R - sim.refOffset),
     "Periapsis  " + fmtAlt(peAlt) + (o.bound && peAlt > 0 ? "  IN ORBIT" : ""),
     "Period     " + fmtTime(o.period)
   ]);

@@ -22,17 +22,18 @@ function buildWorld() {
   const ground = world.createBody({ type: "static", position: P(0, 0) });
   ground.createFixture({ shape: new planck.Circle(R), friction: 0.8 });
 
-  const base = R + PAD_CLEARANCE;     // the engine's bottom
-  const parts = [], byId = {}, joints = [];
+  const base = R + PAD_GAP;           // the rocket's lowest point sits this far above the ground
+  const parts = [], byId = {}, joints = [], tanks = [];
 
   for (const def of ROCKET.parts) {   // one body per part
     const verts = def.verts.map(function (v) { return P(v[0], v[1]); });
     const body = world.createBody({ type: "dynamic", position: P(def.at[0], base + def.at[1]) });
     // filterGroupIndex -1: the parts of one rocket never collide with each other (only with the ground)
-    body.createFixture({ shape: new planck.Polygon(verts), density: def.mass / polyArea(verts), friction: 0.8, restitution: 0, filterGroupIndex: -1 });
+    const fixture = body.createFixture({ shape: new planck.Polygon(verts), density: def.mass / polyArea(verts), friction: 0.8, restitution: 0, filterGroupIndex: -1 });
     const part = { def: def, name: def.name, color: def.color, body: body, verts: verts,
                    forces: (def.forces || []).map(function (f) { return Object.assign({ now: 0, angle: 0 }, f); }) };   // now = force this step, angle = gimbal
     for (const f of part.forces) prepareAero(part, f);
+    if (def.fuel) tanks.push({ part: part, fixture: fixture, area: polyArea(verts), dry: def.fuel.dry, full: def.fuel.full });
     parts.push(part);
     byId[def.id] = part;
   }
@@ -44,12 +45,13 @@ function buildWorld() {
     joints.push({ name: part.name, j: j, force: 0, peak: 0 });
   }
 
-  const hull = parts.find(function (p) { return p.def.hull; });
+  const hull = byId[ROCKET.hull.id];
   let hx0 = Infinity, hx1 = -Infinity;
   for (const v of hull.verts) { hx0 = Math.min(hx0, v.x); hx1 = Math.max(hx1, v.x); }
+  const fuelFull = tanks.reduce(function (s, t) { return s + t.full; }, 0);
   sim = { world: world, ground: ground, parts: parts, joints: joints, hull: hull, hullWidth: hx1 - hx0,
-          hullFixture: hull.body.getFixtureList(), hullArea: polyArea(hull.verts),
-          fuelDry: hull.def.fuel.dry, fuelFull: hull.def.fuel.full, fuel: hull.def.fuel.full,
+          tanks: tanks, fuelFull: fuelFull, fuel: fuelFull,             // all tanks share one pool of fuel, drained evenly
+          refOffset: ROCKET.hull.at[1] + PAD_GAP,                       // height of the hull's centre on the pad: altitudes are shown minus this
           thrust: 0, airborne: false, t: 0, emptyLogged: false,
           rho: RHO0, q: 0, maxQ: 0, aoa: 0 };
 

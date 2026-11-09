@@ -56,6 +56,9 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+const launched = designFromHash(location.hash);                 // the builder opens this page with the design in the address
+for (const msg of launched.problems) log("DESIGN: " + msg);
+if (launched.design) ROCKET = assemble(launched.design);
 for (const msg of checkRules(ROCKET.parts)) log("RULE BROKEN: " + msg);   // the rocket must follow rules.js
 resize();
 resetAll();

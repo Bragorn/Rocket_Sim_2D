@@ -28,9 +28,8 @@ const SCALE_HEIGHT = 8500;           // the air thins by a factor of e every 8.5
 const FIN_CN = 5.0;                  // how hard a fin pushes sideways per radian of angle (bigger = stronger)
 const FIN_STALL = 0.35;              // past about 20 degrees of angle the fin stops gaining push
 
-/* ---- display ---- */
-const REF_OFFSET = 3.3;              // height of the tank's centre when the rocket stands on its legs. Altitudes
-                                     // are shown minus this, so the pad reads 0
+/* ---- the pad ---- */
+const PAD_GAP = 0.02;                // the lowest point of the rocket starts this far above the ground, m
 
 /* The engine's built-in speed cap (2 m per step) would hold everything below 120 m/s.
    Raising it is what lets orbits work. */

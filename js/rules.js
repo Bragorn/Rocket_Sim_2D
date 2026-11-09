@@ -23,6 +23,9 @@ const RULES = {
   finAreal: 10,             // kg per m2 of fin (planform: shape area x depth)
   legPerM: 25,              // kg per meter of landing leg
   tankWidths: [1, 2, 4],    // the width classes (m)
+  engineSizes: [100e3, 250e3, 600e3],   // the engines on offer: vacuum thrust, N
+  tankMaxLength: 8, noseMaxLength: 4,   // m
+  sideGridM: 0.1,           // fins and legs slide along a tank in steps of this (m)
   gridM: 0.5,               // tank and nose lengths come in multiples of this (m)
   tankDryMin: 0.02, tankDryMax: 0.20   // dry mass / fuel mass of a tank must land in this band (small tanks are
                                          // heavier for their fuel, big ones lighter: wall area grows slower than volume)

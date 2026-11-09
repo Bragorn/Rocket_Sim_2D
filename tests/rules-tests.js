@@ -14,7 +14,7 @@ const vm = require("vm"), fs = require("fs"), path = require("path");
 const root = path.join(__dirname, "..");
 const ctx = { console, Math, Object, Array, Number, document: { body: {} }, planck: { Settings: {}, Vec2: function (x, y) { this.x = x; this.y = y; } } };
 vm.createContext(ctx);
-for (const f of ["util", "settings", "rules", "parts", "aero"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
+for (const f of ["util", "settings", "rules", "parts", "design", "aero"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
 const run = (e) => vm.runInContext(e, ctx);
 let failures = 0;
 function check(ok, text) { console.log((ok ? "  PASS  " : "  FAIL  ") + text); if (!ok) failures++; }

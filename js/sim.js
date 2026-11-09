@@ -25,8 +25,11 @@ function applyPartForces(dt) {
 
   if (want > 0) {                                     // burn fuel, and make the tank lighter
     sim.fuel = Math.max(0, sim.fuel - flow * dt);
-    sim.hullFixture.setDensity((sim.fuelDry + sim.fuel) / sim.hullArea);
-    sim.hull.body.resetMassData();
+    const left = sim.fuel / sim.fuelFull;             // every tank drains evenly, so each one is the same fraction full
+    for (const t of sim.tanks) {
+      t.fixture.setDensity((t.dry + left * t.full) / t.area);
+      t.part.body.resetMassData();
+    }
     if (sim.fuel === 0 && !sim.emptyLogged) {
       sim.emptyLogged = true;
       log("T+" + sim.t.toFixed(1) + " s: out of fuel");
