@@ -22,7 +22,7 @@ let mirror = true;                   // fins and legs go in pairs
 let view = { cx: 0, cy: 3, scale: 28 };   // the middle of the screen in meters, and pixels per meter
 let W = 100, H = 100;
 const mouse = { px: 0, py: 0, inside: false };
-const pal = { tab: "tanks", tankW: 2, tankL: 4, noseW: 2, noseL: 1.5 };
+const pal = { tab: "tanks", tankW: 2, tankL: 4, noseW: 2, noseL: 1.5, legDrop: 2 };
 const ui = { rows: {} };
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
@@ -144,6 +144,7 @@ function refresh() {
   ui.problems.textContent = "";
   if (bad.length === 0) { const d = el("div", "good", "Ready to launch"); ui.problems.appendChild(d); }
   else for (const m of bad) { const d = el("div", "bad", m); d.style.marginBottom = "3px"; ui.problems.appendChild(d); }
+  if (bad.length === 0) for (const m of designWarnings(design)) { const d = el("div", "warn", m); d.style.marginBottom = "3px"; ui.problems.appendChild(d); }
   ui.launch.disabled = bad.length > 0;
   ui.saved.textContent = "";
   const names = Object.keys(savedDesigns());
@@ -256,7 +257,7 @@ function renderCards() {
            stepper("Length", () => pal.tankL, (v) => { pal.tankL = v; }, RULES.gridM, RULES.tankMaxLength, RULES.gridM, (v) => v.toFixed(1) + " m"))));
   } else if (pal.tab === "engines") {
     ui.cards.appendChild(el("div", "hint", "Engines join the bottom of a body part. Big engines are wider: they need a wide enough tank above them."));
-    const names = ["Small", "Medium", "Large"];
+    const names = ["Small", "Medium", "Large", "Huge"];
     RULES.engineSizes.forEach(function (n, i) {
       const sp = engineSpec(n), d = engine(n);
       ui.cards.appendChild(card({ type: "engine", thrust: n }, names[i] + " engine " + Math.round(n / 1000) + " kN",
@@ -274,9 +275,10 @@ function renderCards() {
     cb.addEventListener("click", function () { mirror = !mirror; renderCards(); });
     m.appendChild(cb); m.appendChild(el("span", "s", mirror ? "a fin or leg on both sides" : "one side only (the side you drop it on)"));
     ui.cards.appendChild(m);
-    const fin = previewOf({ type: "fin" }), leg = previewOf({ type: "leg" });
+    const fin = previewOf({ type: "fin" }), leg = previewOf({ type: "leg", drop: pal.legDrop });
     ui.cards.appendChild(card({ type: "fin" }, "Fin", ["mass " + fmtKg(fin.mass) + " each", "steers the rocket straight into the air"]));
-    ui.cards.appendChild(card({ type: "leg" }, "Leg", ["mass " + fmtKg(leg.mass) + " each", "lets it stand on the ground"]));
+    ui.cards.appendChild(card({ type: "leg", drop: pal.legDrop }, "Leg " + pal.legDrop.toFixed(1) + " m", ["mass " + fmtKg(leg.mass) + " each", "reaches " + pal.legDrop.toFixed(1) + " m below where it joins"],
+      stepper("Length", () => pal.legDrop, (v) => { pal.legDrop = v; }, 1, 8, 0.5, (v) => v.toFixed(1) + " m")));
   }
 }
 

@@ -86,7 +86,7 @@ function validateDesign(design, partial) {
     seen[d.id] = true;
     if (!type) { bad.push(d.id + ": unknown part type " + d.type); return; }
     let ok = true;
-    for (const k in type.params) if (!inRange(d[k], type.params[k])) { bad.push(d.id + ": " + k + " " + d[k] + " is not allowed for a " + type.label.toLowerCase()); ok = false; }
+    for (const k in type.params) if (!(type.params[k].optional && d[k] === undefined) && !inRange(d[k], type.params[k])) { bad.push(d.id + ": " + k + " " + d[k] + " is not allowed for a " + type.label.toLowerCase()); ok = false; }
     if (!ok) return;
     if (d.type === "tank") tanks++;
     if (d.type === "engine") engines++;
@@ -108,12 +108,15 @@ function validateDesign(design, partial) {
       return;
     }
     if (d.anchor !== "top" && d.anchor !== "bottom") { bad.push(d.id + ": a body part has to join at the top or the bottom"); return; }
+    const pd = design.parts.find(function (q) { return q.id === d.parent; });
+    if ((pd.anchor === "top" && d.anchor === "bottom") || (pd.anchor === "bottom" && d.anchor === "top")) { bad.push(d.id + ": the " + p.name + " is already joined on that end"); return; }
     const parentFace = d.anchor === "top" ? p.faceTop : p.faceBottom, myFace = d.anchor === "top" ? made[d.id].faceBottom : made[d.id].faceTop;
     if (parentFace === null) { bad.push(d.id + ": there is nothing to join on the " + d.anchor + " of the " + p.name); return; }
     if (myFace === null) { bad.push(d.id + ": it has no face to join on that side"); return; }
-    if (myFace > parentFace + 1e-9) { bad.push(d.id + ": it is wider (" + myFace.toFixed(2) + " m) than the face it joins (" + parentFace.toFixed(2) + " m)"); return; }
+    const ext = Math.max(myFace, made[d.id].width);                            // the widest part of it (an engine's bell is wider than where it joins)
+    if (ext > parentFace + 1e-9) { bad.push(d.id + ": it is wider (" + ext.toFixed(2) + " m) than the face it joins (" + parentFace.toFixed(2) + " m)"); return; }
     const dx = d.dx || 0;
-    if (Math.abs(dx) + myFace / 2 > parentFace / 2 + 1e-9) bad.push(d.id + ": it sticks out past the edge of the face it joins");
+    if (Math.abs(dx) + ext / 2 > parentFace / 2 + 1e-9) bad.push(d.id + ": it sticks out past the edge of the face it joins");
     (groups[d.parent + "|" + d.anchor] = groups[d.parent + "|" + d.anchor] || []).push(d);
   });
   for (const key in groups) {                                                  // two parts cannot sit in the same place
@@ -133,6 +136,25 @@ function validateDesign(design, partial) {
   if (!partial && engines === 0) bad.push("the rocket needs an engine");
   if (bad.length === 0) for (const m of checkRules(assemble(design).parts)) bad.push(m);
   return bad;
+}
+
+/* Things that are allowed but probably not what you want. They do not stop a launch. */
+function designWarnings(design) {
+  const out = [];
+  if (!design || !design.parts || design.parts.length === 0) return out;
+  let lowLeg = Infinity, lowBody = Infinity, lowName = "";
+  for (const def of assemble(design, { keepFrame: true }).parts) for (const v of def.verts) {
+    const y = def.at[1] + v[1];
+    if (def.kind === "leg") lowLeg = Math.min(lowLeg, y);
+    else if (y < lowBody) { lowBody = y; lowName = def.name; }
+  }
+  if (lowLeg === Infinity) out.push("no legs: the rocket would stand on its " + lowName);
+  else if (lowBody < lowLeg - 1e-6) {
+    const legs = design.parts.filter(function (p) { return p.type === "leg"; });
+    const now = Math.min.apply(null, legs.map(function (p) { return p.drop === undefined ? 1.7 : p.drop; }));
+    out.push("the " + lowName + " reaches lower than the legs, so it would stand on it. Legs about " + (Math.ceil((now + lowLeg - lowBody + 0.15) * 10) / 10).toFixed(1) + " m long (now " + now.toFixed(1) + " m) would reach.");
+  }
+  return out;
 }
 
 /* ---- saving and loading. A design is small text. ---- */

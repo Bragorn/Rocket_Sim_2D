@@ -28,14 +28,14 @@ function bar(end, th) {              // a thin straight bar from (0,0) to end, t
 }
 
 /* ---- body parts (they stack: one joins the next above or below) ---- */
-function engine(vacN) {
-  const sp = engineSpec(vacN), s = sp.scale;
-  return { id: "engine", name: "engine", kind: "engine", color: "#7f8c8d", length: 0.8 * s, width: 1.2 * s, mass: sp.mass,
-           faceTop: 1.2 * s, faceBottom: null,                    // the nozzle end has nothing to join
-           verts: [[-0.5 * s, -0.4 * s], [0.5 * s, -0.4 * s], [0.6 * s, 0.4 * s], [-0.6 * s, 0.4 * s]],
-           forces: [{ kind: "thrust", at: [0, -0.4 * s], vac: sp.vac, sl: sp.sl, mdot: sp.mdot, scale: s,
+function engine(vacN) {              // a bell: narrow at the top where it joins, widest at the nozzle
+  const sp = engineSpec(vacN), w = sp.width, L = sp.length;
+  return { id: "engine", name: "engine", kind: "engine", color: "#7f8c8d", length: L, width: w, mass: sp.mass,
+           faceTop: 0.5 * w, faceBottom: null,                    // the nozzle end has nothing to join
+           verts: [[-0.25 * w, L / 2], [0.25 * w, L / 2], [0.5 * w, -L / 2], [-0.5 * w, -L / 2]],
+           forces: [{ kind: "thrust", at: [0, -L / 2], vac: sp.vac, sl: sp.sl, mdot: sp.mdot, scale: w,     // scale sizes the flame
                       minThrottle: RULES.minThrottle, gimbalMax: GIMBAL_MAX, gimbalRate: GIMBAL_RATE },
-                    { kind: "drag", cdAxial: 0.3, cdSide: 0.6, depth: 1.2 * s }] };
+                    { kind: "drag", cdAxial: 0.3, cdSide: 0.6, depth: w }] };
 }
 
 function tank(width, length) {
@@ -67,8 +67,9 @@ function makeFin(side, c) {          // root along the tank wall (2.4 m), tip 1.
                     { kind: "drag", cdAxial: 0.1, cdSide: 0, depth: depth }] };   // the sideways push is the fin force; this is just its own skin drag
 }
 
-function makeLeg(side, c) {          // a bar from the tank wall down and out
-  const end = [side * 1.5, -1.7], len = Math.hypot(end[0], end[1]);
+function makeLeg(side, c, drop) {   // a bar from the tank wall down and out. drop = how far it reaches below where it joins (m)
+  const dp = drop === undefined ? 1.7 : drop;
+  const end = [side * dp * 1.5 / 1.7, -dp], len = Math.hypot(end[0], end[1]);
   return { id: "leg", name: "leg", kind: "leg", color: "#95a5a6",
            at: [c.px + side * c.half, c.jy], mass: len * RULES.legPerM, verts: bar(end, 0.2),
            joint: { at: [c.px + side * c.half, c.jy] },
@@ -88,5 +89,6 @@ const PART_TYPES = {
             params: { width: { choices: RULES.tankWidths }, length: { min: RULES.gridM, max: RULES.noseMaxLength, step: RULES.gridM } },
             make: function (s) { return nose(s.width, s.length); } },
   fin:    { label: "Fin", kind: "side", params: {}, make: function (s, side, c) { return makeFin(side, c); } },
-  leg:    { label: "Leg", kind: "side", params: {}, make: function (s, side, c) { return makeLeg(side, c); } }
+  leg:    { label: "Leg", kind: "side", params: { drop: { min: 1, max: 8, step: 0.1, optional: true } },       // optional: older designs have no length
+            make: function (s, side, c) { return makeLeg(side, c, s.drop); } }
 };

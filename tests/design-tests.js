@@ -62,7 +62,9 @@ let low = Infinity; for (const p of R0.parts) for (const v of p.verts) low = Mat
 check(near(low, 0), "the lowest point of the rocket (the feet) is at height 0");
 check(R0.hull.id === "tank", "the hull is the tank");
 check(near(by("engine").joint.at[1], by("tank").at[1] - 2) && near(by("nose").joint.at[1], by("tank").at[1] + 2), "engine and nose are welded at the tank's bottom and top faces");
-check(near(by("tank").at[1] - by("engine").at[1], 2.4) && near(by("nose").at[1] - by("tank").at[1], 2.75), "the parts sit where the old hand-made rocket had them (engine 0.8 m, tank 4 m, nose 1.5 m)");
+const engLen = run("engine(250e3)").length;
+check(near(by("tank").at[1] - by("engine").at[1], 2 + engLen / 2) && near(by("nose").at[1] - by("tank").at[1], 2.75), `the parts stack up: engine ${engLen.toFixed(2)} m long, tank 4 m, nose 1.5 m`);
+check(near(run("engine(250e3)").width, 0.645, 0.001) && near(run("engine(1500e3)").width, 1.58, 0.01), "engine widths follow the thrust: 250 kN is 0.65 m wide, 1.5 MN is 1.6 m");
 check(near(by("legL").at[0], -1) && near(by("legR").at[0], 1) && near(by("legL").at[1], by("tank").at[1] - 2 + 0.4), "legs hang on the tank wall, 0.4 m above its bottom, one each side");
 check(near(by("finR").at[0], 1.7) && near(by("finL").at[0], -1.7), "fins sit out from the tank wall, mirrored");
 check(by("finL").joint.to === "tank" && by("legR").joint.to === "tank", "side parts are welded to the tank");
@@ -74,12 +76,15 @@ const t24 = tank("t", 2, 4);
 check(bad(withParts(t24, eng("e", "t"))).length === 0, "a tank with an engine under it is valid");
 check(bad(withParts(t24)).some(m => /engine/.test(m)), "no engine: refused");
 check(bad(withParts({ id: "n", type: "nose", width: 2, length: 1.5 })).some(m => /tank/.test(m)), "no tank: refused");
-check(bad(withParts(tank("t", 1, 4), eng("e", "t", 0, 600000))).some(m => /wider/.test(m)), "a 1.9 m engine under a 1 m tank: refused (wider than the face)");
+check(bad(withParts(tank("t", 1, 4), eng("e", "t", 0, 1500000))).some(m => /wider/.test(m)), "a 1.6 m engine under a 1 m tank: refused (wider than the face)");
+check(bad(withParts(tank("t", 1, 4), eng("e", "t", 0, 600000))).length === 0, "a 1 m engine under a 1 m tank: fits exactly");
 check(bad(withParts(tank("t", 2, 4), tank("u", 4, 2, { parent: "t", anchor: "top" }))).some(m => /wider/.test(m)), "a 4 m tank on a 2 m tank: refused");
 check(bad(withParts(tank("t", 4, 4), tank("u", 2, 2, { parent: "t", anchor: "top" }), eng("e", "t"))).length === 0, "a 2 m tank on a 4 m tank: allowed");
 check(bad(withParts(t24, eng("e", "t"), eng("f", "t"))).some(m => /overlap/.test(m)), "two engines in the same place: refused");
 check(bad(withParts(tank("t", 4, 4), eng("e", "t", -1, 600000), eng("f", "t", 1, 600000))).length === 0, "two big engines side by side under a 4 m tank: valid");
-check(bad(withParts(tank("t", 4, 4), eng("e", "t", -1.5, 600000))).some(m => /edge/.test(m)), "an engine pushed past the edge of the face: refused");
+check(bad(withParts(tank("t", 4, 4), eng("e", "t", -1.7, 600000))).some(m => /edge/.test(m)), "an engine pushed past the edge of the face: refused");
+check(bad(withParts(tank("t", 4, 8), eng("a", "t", -1.5, 600000), eng("b", "t", -0.5, 600000), eng("c", "t", 0.5, 600000), eng("d", "t", 1.5, 600000))).length === 0, "four large engines side by side fit under a 4 m tank");
+check(bad(withParts(t24, eng("e", "t"), { id: "x", type: "engine", thrust: 250000, parent: "e", anchor: "top" })).length > 0 && bad(withParts(t24, { id: "n", type: "nose", width: 2, length: 1.5, parent: "t", anchor: "top" }, eng("e2", "n", 0), eng("e", "t"))).some(m => /already joined/.test(m)), "nothing can join on the end of a part that is already joined to its parent");
 check(bad(withParts(t24, eng("e", "t"), { id: "n", type: "nose", width: 2, length: 1.5, parent: "t", anchor: "top" }, { id: "n2", type: "nose", width: 2, length: 1, parent: "n", anchor: "top" })).some(m => /nothing to join/.test(m)), "something on top of a nose cone: refused (the tip has no face)");
 check(bad(withParts(t24, eng("e", "t"), { id: "l", type: "leg", parent: "e", anchor: "side", side: 0, y: 0.2 })).some(m => /only hang on a tank/.test(m)), "a leg on an engine: refused");
 check(bad(withParts(t24, eng("e", "t"), { id: "f", type: "fin", parent: "t", anchor: "side", side: 0, y: 4.5 })).length > 0, "a fin joined above the top of the tank: refused");
@@ -91,6 +96,23 @@ check(bad(withParts(t24, { id: "q", type: "rocket", parent: "t" })).some(m => /u
 check(bad(withParts(t24, eng("t", "t"))).some(m => /id/.test(m)), "a repeated id: refused");
 check(bad(withParts(eng("e", null), t24)).length > 0, "an engine as the first part: refused");
 check(bad(null).length > 0 && bad({ parts: [] }).length > 0, "nothing at all: refused");
+
+/* ---- legs ---- */
+console.log("\n2b. Legs");
+const legD = (extra) => withParts(t24, eng("e", "t"), Object.assign({ id: "l", type: "leg", parent: "t", anchor: "side", side: 0, y: 0.4 }, extra));
+check(bad(legD({})).length === 0 && bad(legD({ drop: 4 })).length === 0 && bad(legD({ drop: 0.5 })).length > 0 && bad(legD({ drop: 8.5 })).length > 0, "a leg's length is optional, and has to be between 1 and 8 m");
+const footOf = (d) => { let low = Infinity; for (const p of run("assemble")(d, { keepFrame: true }).parts) if (p.kind === "leg") for (const v of p.verts) low = Math.min(low, p.at[1] + v[1]); return low; };
+check(footOf(legD({ drop: 4 })) < footOf(legD({})) - 2, "a longer leg reaches lower");
+check(near(run("assemble")(legD({}), { keepFrame: true }).parts.find(p => p.id === "lL").mass, run("assemble")(DESIGN, { keepFrame: true }).parts.find(p => p.id === "legL").mass, 1e-6), "a leg with no length set is the same as before (1.7 m)");
+const warn = (d) => run("designWarnings")(d);
+check(warn(DESIGN).length === 0, "the starting rocket has no warnings");
+const hugeRocket = withParts(tank("t", 4, 8), eng("a", "t", -1, 1500000), eng("b", "t", 1, 1500000), { id: "l", type: "leg", parent: "t", anchor: "side", side: 0, y: 0.4 });
+check(bad(hugeRocket).length === 0 && warn(hugeRocket).length === 1 && /reaches lower than the legs/.test(warn(hugeRocket)[0]), `a huge engine hangs lower than the default legs: warned, but still allowed ("${warn(hugeRocket)[0]}")`);
+const need = parseFloat(/about ([\d.]+) m long/.exec(warn(hugeRocket)[0])[1]);
+const fixed = withParts(tank("t", 4, 8), eng("a", "t", -1, 1500000), eng("b", "t", 1, 1500000), { id: "l", type: "leg", parent: "t", anchor: "side", side: 0, y: 0.4, drop: need });
+check(warn(fixed).length === 0, `legs of the suggested length (${need.toFixed(1)} m) clear the warning`);
+check(warn(withParts(t24, eng("e", "t"))).length === 1 && /no legs/.test(warn(withParts(t24, eng("e", "t")))[0]), "no legs: warned that it would stand on its engine");
+check(warn({ version: 1, parts: [] }).length === 0, "an empty design has no warnings");
 
 /* ---- 3. saving and loading ---- */
 console.log("\n3. Saving and loading");

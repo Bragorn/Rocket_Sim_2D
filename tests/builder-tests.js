@@ -54,7 +54,7 @@ check(st.engines === 1 && near(st.thrustVac, 250000) && near(st.thrustSl, 250000
 check(st.twrSl > 1.5 && st.twrSl < 1.8, `thrust-to-weight ${st.twrSl.toFixed(2)}`);
 check(st.dvVac > 6000 && st.dvVac < 7500, `delta-v ${st.dvVac.toFixed(0)} m/s (the game's bar uses the same formula)`);
 check(near(st.burn, 12566.37 / (250000 / (310 * 9.81)), 0.01), `burn time ${st.burn.toFixed(0)} s`);
-check(near(st.calFull, 0.72, 0.03) && near(st.calDry, 0.36, 0.03), `stability ${st.calFull.toFixed(2)} cal full, ${st.calDry.toFixed(2)} empty: matches the flight test`);
+check(near(st.calFull, 0.71, 0.03) && near(st.calDry, 0.32, 0.03), `stability ${st.calFull.toFixed(2)} cal full, ${st.calDry.toFixed(2)} empty: matches the flight test`);
 check(near(st.height, 6.9, 0.2) && near(st.width, 5.1, 0.2), `size ${st.width.toFixed(1)} x ${st.height.toFixed(1)} m`);
 const two = run("designStats")(partial(tank("t", 4, 4), tank("u", 2, 2, { parent: "t", anchor: "top" }), eng("e", "t", -1), eng("f", "t", 1)));
 check(two.engines === 2 && two.tanks === 2 && near(two.thrustVac, 500000), "two tanks and two engines are counted");
@@ -95,7 +95,11 @@ check(r.valid && r.att.dx < -0.5, `on a 4 m tank a big engine can slide off-cent
 r = best(E("attachTrial")(wide, [eng("e1", "tank", -1, 600000)], {parent: "tank", anchor: "bottom", dx: -1}), { type: "engine", thrust: 600000 }, 1, -0.3);
 check(r.valid && r.att.dx > 0.5, "a second engine goes on the other side of the first");
 r = best(E("attachTrial")(wide, [eng("e1", "tank", 0, 600000)], {parent: "tank", anchor: "bottom", dx: 0}), { type: "engine", thrust: 600000 }, 0.2, -0.3);
-check(!r.valid, "a second engine on top of the first is refused");
+check(r.valid && Math.abs(r.att.dx) >= 1, `a second engine dropped on the first slides to a free spot beside it (dx ${r.att.dx.toFixed(1)})`);
+const big = E("designStats")(partial(tank("t", 4, 8), eng("a", "t", -1.5, 600000), eng("b", "t", -0.5, 600000), eng("c", "t", 0.5, 600000), eng("d", "t", 1.5, 600000)));
+check(big.twrSl > 1.9 && big.twrSl < 2.4, `the biggest tank (4 m x 8 m, ${(big.wet / 1000).toFixed(0)} t) with four large engines lifts off at ${big.twrSl.toFixed(2)} thrust-to-weight`);
+const bigHuge = E("designStats")(partial(tank("t", 4, 8), eng("a", "t", -1, 1500000), eng("b", "t", 1, 1500000)));
+check(bigHuge.twrSl > 2.3, `or two huge engines: ${bigHuge.twrSl.toFixed(2)}`);
 const empty = { version: 1, name: "n", parts: [] };
 r = best(empty, { type: "tank", width: 2, length: 4 }, 0, 0);
 check(r.valid && r.snapped && r.trial.parts.length === 1, "the first part becomes the root of an empty design");

@@ -77,7 +77,7 @@ function bestAttach(base, moved, mouse, opts) {
       const made = type.make(spec);
       for (const anchor of ["top", "bottom"]) {
         const pf = anchor === "top" ? g.faceTop : g.faceBottom, mf = anchor === "top" ? made.faceBottom : made.faceTop;
-        const lim = pf !== null && mf !== null ? Math.max(0, (pf - mf) / 2) : 0;
+        const lim = pf !== null && mf !== null ? Math.max(0, (pf - Math.max(mf, made.width)) / 2) : 0;
         const cy = anchor === "top" ? g.at[1] + g.length / 2 + made.length / 2 : g.at[1] - g.length / 2 - made.length / 2;
         const dxs = [Math.max(-lim, Math.min(lim, snapTo(mouse.x - g.at[0]))), 0, lim, -lim];
         for (const dx of dxs) cands.push({ att: { parent: dp.id, anchor: anchor, dx: dx }, score: Math.hypot(mouse.x - (g.at[0] + dx), mouse.y - cy) });

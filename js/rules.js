@@ -17,13 +17,14 @@ const RULES = {
   ispSl: 280,               // s, engine efficiency at sea level
   ispVac: 310,              // s, in vacuum
   minThrottle: 0.4,         // an engine cannot run below this fraction of its thrust once lit
-  engineRefN: 250e3,        // the reference engine: 250 kN vacuum thrust is 1.2 m wide at the top, 0.8 m long.
-                            // other engines scale with the square root of their thrust
+  engineThrustPerM2: 0.6e6, // an engine's width is sqrt(thrust / this): thrust per square meter of its footprint.
+                            // Real engines manage about 1 MN per m2 or more, so these are a little bulkier than real
+  engineAspect: 1.8,        // an engine is this many times longer than it is wide (the bell included)
   noseAreal: 15,            // kg per m2 of nose skin
   finAreal: 10,             // kg per m2 of fin (planform: shape area x depth)
   legPerM: 25,              // kg per meter of landing leg
   tankWidths: [1, 2, 4],    // the width classes (m)
-  engineSizes: [100e3, 250e3, 600e3],   // the engines on offer: vacuum thrust, N
+  engineSizes: [100e3, 250e3, 600e3, 1500e3],   // the engines on offer: vacuum thrust, N
   tankMaxLength: 8, noseMaxLength: 4,   // m
   sideGridM: 0.1,           // fins and legs slide along a tank in steps of this (m)
   gridM: 0.5,               // tank and nose lengths come in multiples of this (m)
@@ -38,9 +39,9 @@ function tankSpec(width, length) {   // a cylinder: volume, fuel, dry mass
 }
 
 function engineSpec(vacN) {          // everything about an engine from its vacuum thrust
-  const s = Math.sqrt(vacN / RULES.engineRefN);
+  const w = Math.sqrt(vacN / RULES.engineThrustPerM2);
   return { vac: vacN, sl: vacN * RULES.ispSl / RULES.ispVac,       // thrust in vacuum and at sea level
-           mass: vacN / (RULES.engineTWR * G0), scale: s,
+           mass: vacN / (RULES.engineTWR * G0), width: w, length: w * RULES.engineAspect,
            mdot: vacN / (RULES.ispVac * G0) };                     // fuel burned per second at full throttle, kg/s
 }
 
