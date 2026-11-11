@@ -63,7 +63,8 @@ function stepSim() {
   sim.hull.body.applyTorque(clamp(tq, -WHEEL_MAX, WHEEL_MAX), true);
 
   w.step(DT, VEL_IT, POS_IT);
-  sim.t += DT;
+  if (sim.thrust > 0) sim.started = true;                     // the flight clock starts at ignition
+  if (sim.started) sim.t += DT;
   updateFlightStats();
 
   const inv = 1 / DT;                                 // joint loads are tracked for later (not shown right now)
@@ -73,5 +74,6 @@ function stepSim() {
     if (j.force > j.peak) j.peak = j.force;
   }
   const p = sim.hull.body.getPosition();
-  if (Math.hypot(p.x, p.y) - R > 5.5) sim.airborne = true;
+  if (Math.hypot(p.x, p.y) - R > 5.5) { sim.airborne = true; sim.flown = true; }
+  telemetryStep();
 }

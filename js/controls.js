@@ -12,6 +12,7 @@
 
 const controls = { throttle: 0, steer: 0, damping: true };
 const keys = {};                     // which keys are held right now
+let paused = false;                  // the pause menu sets this: while true the sim does not step and flight keys do nothing
 
 function controlsReset() { controls.throttle = 0; controls.steer = 0; controls.damping = true; }
 
@@ -23,6 +24,7 @@ function updateControls(dt) {        // called once per physics step, before the
 
 window.addEventListener("keydown", function (e) {
   if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].indexOf(e.code) >= 0) e.preventDefault();
+  if (paused) return;
   keys[e.code] = true;
   if (e.repeat) return;
   if (e.code === "KeyZ") controls.throttle = 1;

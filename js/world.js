@@ -53,7 +53,10 @@ function buildWorld() {
           tanks: tanks, fuelFull: fuelFull, fuel: fuelFull,             // all tanks share one pool of fuel, drained evenly
           refOffset: ROCKET.hull.at[1] + PAD_GAP,                       // height of the hull's centre on the pad: altitudes are shown minus this
           thrust: 0, airborne: false, t: 0, emptyLogged: false,
+          started: false, flown: false, touchdownSpeed: null,           // started = engine lit once (the flight clock runs); flown = has been in the air
+          dragN: 0, accG: 1, pvx: 0, pvy: 0, p0: { x: hull.body.getPosition().x, y: hull.body.getPosition().y },
           rho: RHO0, q: 0, maxQ: 0, aoa: 0 };
+  teleReset();
 
   world.on("begin-contact", function (ct) {          // the first touch after being in the air gets reported
     const A = ct.getFixtureA().getBody(), B = ct.getFixtureB().getBody();
@@ -63,6 +66,7 @@ function buildWorld() {
     const body = A === ground ? B : A, p = body.getPosition(), r = Math.hypot(p.x, p.y);
     const ux = p.x / r, uy = p.y / r, v = body.getLinearVelocity();
     const vert = v.x * ux + v.y * uy, side = v.x * uy - v.y * ux;
+    sim.touchdownSpeed = Math.abs(vert);
     const who = (parts.find(function (q) { return q.body === body; }) || { name: "?" }).name;
     log("T+" + sim.t.toFixed(1) + " s: touchdown, " + who + " first, " + Math.abs(vert).toFixed(1) + " m/s down, " + Math.abs(side).toFixed(1) + " m/s sideways");
   });

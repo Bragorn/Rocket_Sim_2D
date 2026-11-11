@@ -50,15 +50,6 @@ function niceStep(x) {
   return (r < 1.5 ? 1 : r < 3.5 ? 2 : r < 7.5 ? 5 : 10) * mag;
 }
 
-function fmtAlt(m) {
-  if (!isFinite(m)) return "escape";
-  return Math.abs(m) < 10000 ? m.toFixed(0) + " m" : (m / 1000).toFixed(1) + " km";
-}
-function fmtTime(s) {
-  if (s === null) return "-";
-  return s < 120 ? s.toFixed(0) + " s" : Math.floor(s / 60) + " min " + Math.round(s % 60) + " s";
-}
-
 function drawFlight(alt, phi) {
   const p = sim.hull.body.getPosition();
   const ux = Math.sin(phi), uy = Math.cos(phi), ex = Math.cos(phi), ey = -Math.sin(phi), HOR = 0.62;
@@ -165,8 +156,41 @@ function drawMap(o) {                                        // the whole planet
   c.textAlign = "left";
 }
 
-/* ---- the readout panel (top left, the numbers you watch while flying) ---- */
-function drawPanel(lines) {
+/* ---- the text is rebuilt 10 times a second, not every frame: easier to read and much less work for the browser ---- */
+const barButtons = [];               // clickable chips in the bottom bar, remade each frame: { x, y, w, h, fn }
+let textAt = 0, panelLines = [], barText = { fuelFrac: 1, fuelLabel: "", thrLabel: "", cols: [] };
+let showPerf = false;                // the pause menu switches this
+const perf = { frame: 16.7, sim: 0, draw: 0, steps: 0 };   // filled in by main.js
+
+function rebuildText() {
+  const fb = sim.hull.body, p = fb.getPosition(), v = fb.getLinearVelocity();
+  const r = Math.hypot(p.x, p.y), phi = Math.atan2(p.x, p.y);
+  const ux = Math.sin(phi), uy = Math.cos(phi), ex = Math.cos(phi), ey = -Math.sin(phi);
+  const alt = r - R, o = orbitInfo(p, v);
+  const speed = Math.hypot(v.x, v.y), vert = v.x * ux + v.y * uy, side = v.x * ex + v.y * ey;
+  let tilt = (fb.getAngle() + phi) * 180 / Math.PI; tilt = ((tilt + 180) % 360 + 360) % 360 - 180;
+  const mass = totalMass();
+  const dv = vacIsp() * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
+  const twr = maxThrust() / (mass * MU / (r * r));
+  const peAlt = o.rp - R - sim.refOffset, cal = stabilityCal();
+  panelLines = [
+    "Altitude   " + fmtAlt(alt - sim.refOffset),
+    "Speed      " + speed.toFixed(0) + " m/s  (up " + vert.toFixed(0) + ", along " + side.toFixed(0) + ")",
+    "Apoapsis   " + fmtAlt(o.ra - R - sim.refOffset),
+    "Periapsis  " + fmtAlt(peAlt) + (o.bound && peAlt > 0 ? "  IN ORBIT" : ""),
+    "Period     " + fmtTime(o.period)
+  ];
+  const stab = cal === null ? "none" : cal.toFixed(1) + " cal" + (cal < 0 ? "  UNSTABLE" : cal < 0.5 ? "  marginal" : "");
+  barText = {
+    fuelFrac: sim.fuel / sim.fuelFull, fuelLabel: "FUEL " + sim.fuel.toFixed(0) + " kg", thrLabel: "THROTTLE " + Math.round(controls.throttle * 100) + "%", thr: controls.throttle,
+    cols: [[190, ["Mass       " + mass.toFixed(0) + " kg", "Delta-v vac " + dv.toFixed(0) + " m/s", "T/W        " + twr.toFixed(2), "Stability  " + stab]],
+           [395, ["Tilt       " + tilt.toFixed(1) + " deg", "AoA        " + sim.aoa.toFixed(1) + " deg", "Damping    " + (controls.damping ? "ON" : "off"), "Time       " + (sim.started ? "T+" + sim.t.toFixed(1) + " s" : "on the pad")]],
+           [555, ["Air        " + sim.rho.toFixed(3) + " kg/m3", "Dyn press  " + (sim.q / 1000).toFixed(2) + " kPa", "Max Q      " + (sim.maxQ / 1000).toFixed(2) + " kPa", "Thrust     " + (sim.thrust / 1000).toFixed(0) + " kN"]]],
+    warpNote: warpActual < warp * 0.9 ? "running " + warpActual.toFixed(1) + "x" : ""
+  };
+}
+
+function drawPanel(lines) {          // top left: the numbers you watch while flying
   c.font = "12px monospace"; c.textAlign = "left"; c.textBaseline = "top";
   let w = 0;
   for (const l of lines) w = Math.max(w, c.measureText(l).width);
@@ -183,58 +207,65 @@ function hbar(x, y, w, h, frac, color, text) {                // a horizontal ga
   c.fillStyle = color; c.fillRect(x + 1, y + 1, Math.round((w - 1) * clamp(frac, 0, 1)), h - 1);
 }
 
-function drawBar(info) {
-  const y0 = Hh;
+function chip(x, y, w, h, label, on, fn) {                    // a small clickable button in the bar
+  c.fillStyle = on ? "rgba(74,163,255,0.30)" : "#1b242c"; c.fillRect(x, y, w, h);
+  c.strokeStyle = on ? "#4aa3ff" : "rgba(255,255,255,0.25)"; c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  c.fillStyle = "#e8eef2"; c.font = "11px monospace"; c.textAlign = "center"; c.textBaseline = "middle";
+  c.fillText(label, x + w / 2, y + h / 2 + 0.5);
+  barButtons.push({ x: x, y: y, w: w, h: h, fn: fn });
+}
+
+function drawBar() {
+  const y0 = Hh, t = barText;
+  barButtons.length = 0;
   c.fillStyle = "#0a0e12"; c.fillRect(0, y0, W, BAR_H);
   c.fillStyle = "rgba(255,255,255,0.18)"; c.fillRect(0, y0, W, 1);
 
-  const ff = sim.fuel / sim.fuelFull;
-  hbar(12, y0 + 24, 150, 10, ff, ff > 0.2 ? "#e0b030" : "#e74c3c", "FUEL " + sim.fuel.toFixed(0) + " kg");
-  hbar(12, y0 + 56, 150, 10, controls.throttle, "#4aa3ff", "THROTTLE " + Math.round(controls.throttle * 100) + "%");
+  hbar(12, y0 + 24, 150, 10, t.fuelFrac, t.fuelFrac > 0.2 ? "#e0b030" : "#e74c3c", t.fuelLabel);
+  hbar(12, y0 + 56, 150, 10, t.thr, "#4aa3ff", t.thrLabel);
 
-  const cal = info.cal;
-  const stab = cal === null ? "none" : cal.toFixed(1) + " cal" + (cal < 0 ? "  UNSTABLE" : cal < 0.5 ? "  marginal" : "");
   c.font = "11px monospace"; c.textAlign = "left"; c.textBaseline = "top"; c.fillStyle = "#e8eef2";
-  const cols = [[190, ["Mass       " + info.mass.toFixed(0) + " kg", "Delta-v vac " + info.dv.toFixed(0) + " m/s", "T/W        " + info.twr.toFixed(2), "Stability  " + stab]],
-                [395, ["Tilt       " + info.tilt.toFixed(1) + " deg", "AoA        " + sim.aoa.toFixed(1) + " deg", "Damping    " + (controls.damping ? "ON" : "off"), "Time       " + sim.t.toFixed(1) + " s"]],
-                [555, ["Air        " + sim.rho.toFixed(3) + " kg/m3", "Dyn press  " + (sim.q / 1000).toFixed(2) + " kPa", "Max Q      " + (sim.maxQ / 1000).toFixed(2) + " kPa", "Thrust     " + (sim.thrust / 1000).toFixed(0) + " kN"]],
-                [720, ["View  " + (mapMode ? "MAP" : "flight"), "Warp  " + warp + "x" + (warpActual < warp * 0.9 ? " (running " + warpActual.toFixed(1) + "x)" : ""), "", ""]]];
-  for (const col of cols) for (let i = 0; i < col[1].length; i++) c.fillText(col[1][i], col[0], y0 + 8 + i * 14);
+  for (const col of t.cols) for (let i = 0; i < col[1].length; i++) c.fillText(col[1][i], col[0], y0 + 8 + i * 14);
+
+  chip(720, y0 + 8, 64, 18, "Map", mapMode, toggleMap);                           // view and time warp, as buttons
+  chip(720, y0 + 32, 20, 18, "-", false, function () { setWarp(warpI - 1); });
+  c.fillStyle = "#e8eef2"; c.font = "11px monospace"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(warp + "x", 762, y0 + 41.5);
+  chip(784, y0 + 32, 20, 18, "+", false, function () { setWarp(warpI + 1); });
+  if (t.warpNote) { c.textAlign = "left"; c.fillStyle = "#f0b33c"; c.fillText(t.warpNote, 720, y0 + 62); }
 
   if (W > 1150) {                                             // the message log, newest at the bottom
     const n = Math.min(4, logLines.length);
-    c.fillStyle = "#8a98a3";
+    c.fillStyle = "#8a98a3"; c.textAlign = "left"; c.textBaseline = "top";
     for (let i = 0; i < n; i++) c.fillText(logLines[logLines.length - n + i], 880, y0 + 8 + i * 12);
   }
 
-  c.font = "10px monospace"; c.textBaseline = "bottom"; c.fillStyle = "rgba(255,255,255,0.55)";
-  c.fillText("W/S throttle  Z full  X cut  A/D steer  T damping  R reset  M map  B builder  + - wheel zoom  < > time warp", 190, y0 + BAR_H - 5);
+  c.font = "10px monospace"; c.textAlign = "left"; c.textBaseline = "bottom"; c.fillStyle = "rgba(255,255,255,0.55)";
+  c.fillText("Esc: menu", 190, y0 + BAR_H - 5);
+}
+
+function drawPerf() {                                         // switched on from the pause menu
+  const lines = ["FPS        " + (1000 / perf.frame).toFixed(0), "Frame      " + perf.frame.toFixed(1) + " ms", "Physics    " + perf.sim.toFixed(2) + " ms, " + perf.steps + " steps",
+                 "Drawing    " + perf.draw.toFixed(2) + " ms (CPU)", "Samples    " + tele.n + " / " + TELE_MAX];
+  c.font = "11px monospace"; c.textAlign = "left"; c.textBaseline = "top";
+  let w = 0; for (const l of lines) w = Math.max(w, c.measureText(l).width);
+  const x = W - w - 24;
+  c.fillStyle = "rgba(10,14,18,0.6)"; c.fillRect(x - 8, 8, w + 16, lines.length * 14 + 10);
+  c.fillStyle = "#e8eef2";
+  for (let i = 0; i < lines.length; i++) c.fillText(lines[i], x, 13 + i * 14);
 }
 
 function draw() {
   const fb = sim.hull.body, p = fb.getPosition(), v = fb.getLinearVelocity();
   const r = Math.hypot(p.x, p.y), phi = Math.atan2(p.x, p.y);
-  const ux = Math.sin(phi), uy = Math.cos(phi), ex = Math.cos(phi), ey = -Math.sin(phi);
-  const alt = r - R, o = orbitInfo(p, v);
 
   c.save();                                                   // the world, kept out of the bar
   c.beginPath(); c.rect(0, 0, W, Hh); c.clip();
-  if (mapMode) drawMap(o); else drawFlight(alt, phi);
+  if (mapMode) drawMap(orbitInfo(p, v)); else drawFlight(r - R, phi);
   c.restore();
 
-  const speed = Math.hypot(v.x, v.y), vert = v.x * ux + v.y * uy, side = v.x * ex + v.y * ey;
-  let tilt = (fb.getAngle() + phi) * 180 / Math.PI; tilt = ((tilt + 180) % 360 + 360) % 360 - 180;
-  const mass = totalMass();
-  const dv = vacIsp() * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
-  const twr = maxThrust() / (mass * MU / (r * r));
-  const peAlt = o.rp - R - sim.refOffset;
-
-  drawPanel([
-    "Altitude   " + fmtAlt(alt - sim.refOffset),
-    "Speed      " + speed.toFixed(0) + " m/s  (up " + vert.toFixed(0) + ", along " + side.toFixed(0) + ")",
-    "Apoapsis   " + fmtAlt(o.ra - R - sim.refOffset),
-    "Periapsis  " + fmtAlt(peAlt) + (o.bound && peAlt > 0 ? "  IN ORBIT" : ""),
-    "Period     " + fmtTime(o.period)
-  ]);
-  drawBar({ mass: mass, dv: dv, twr: twr, tilt: tilt, cal: stabilityCal() });
+  const now = performance.now();
+  if (now - textAt > 100) { textAt = now; rebuildText(); }
+  drawPanel(panelLines);
+  drawBar();
+  if (showPerf) drawPerf();
 }

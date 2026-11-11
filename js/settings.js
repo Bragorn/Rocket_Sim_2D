@@ -28,6 +28,9 @@ const SCALE_HEIGHT = 8500;           // the air thins by a factor of e every 8.5
 const FIN_CN = 5.0;                  // how hard a fin pushes sideways per radian of angle (bigger = stronger)
 const FIN_STALL = 0.35;              // past about 20 degrees of angle the fin stops gaining push
 
+/* ---- space ---- */
+const SPACE_ALT = 70000;             // above this the air is too thin to matter: "reached space" and "in orbit" are measured from here
+
 /* ---- the pad ---- */
 const PAD_GAP = 0.02;                // the lowest point of the rocket starts this far above the ground, m
 

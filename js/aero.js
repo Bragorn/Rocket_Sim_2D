@@ -43,9 +43,11 @@ function applyAeroForce(part, f) {
     fx = -0.5 * rho * V * V * f.liftA * clamp(vx / V, -FIN_STALL, FIN_STALL);
   }
   b.applyForce(P(fx * cs - fy * sn, fx * sn + fy * cs), wp, true);
+  if (f.kind === "drag") sim.dragN += Math.hypot(fx, fy);        // for the flight recorder
 }
 
 function applyAero() {
+  sim.dragN = 0;
   for (const p of sim.parts) for (const f of p.forces) {
     if (f.kind === "drag" || f.kind === "fin") applyAeroForce(p, f);
   }
@@ -57,6 +59,10 @@ function updateFlightStats() {
   sim.rho = airDensity(Math.hypot(p.x, p.y) - R);
   const V = Math.hypot(v.x, v.y);
   sim.q = 0.5 * sim.rho * V * V;                            // dynamic pressure, Pa
+  const r = Math.hypot(p.x, p.y), g = MU / (r * r);          // acceleration you would feel: the change in speed, with gravity taken out
+  const px = (v.x - sim.pvx) / DT + g * p.x / r, py = (v.y - sim.pvy) / DT + g * p.y / r;
+  sim.accG += (Math.hypot(px, py) / G0 - sim.accG) * 0.2;    // smoothed, in g
+  sim.pvx = v.x; sim.pvy = v.y;
   if (sim.q > sim.maxQ) sim.maxQ = sim.q;
   if (V > 1) {                                              // angle between the rocket's axis and the air's direction, 0 to 90
     const a = b.getAngle();

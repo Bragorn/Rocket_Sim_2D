@@ -40,7 +40,7 @@ class World { constructor() { this.first = null; this.last = null; }
 const planck = { Settings: {}, Vec2, Polygon, Circle, World, WeldJoint: function () { this.getReactionForce = () => new Vec2(0, 0); } };
 const ctx = { console, Math, Object, Array, Number, JSON, encodeURIComponent, decodeURIComponent, document: { body: {} }, window: { addEventListener() {} }, planck };
 vm.createContext(ctx);
-for (const f of ["util", "settings", "rules", "parts", "design", "controls", "aero", "world", "sim", "orbit"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
+for (const f of ["util", "settings", "rules", "parts", "design", "controls", "aero", "telemetry", "world", "sim", "orbit"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
 const run = (e) => vm.runInContext(e, ctx);
 ctx.log = () => {};
 let failures = 0;
