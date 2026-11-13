@@ -34,7 +34,8 @@ window.addEventListener("keydown", function (e) {
   if (e.code === "Equal" || e.code === "NumpadAdd") zoomBy(1.05);          // held keys repeat, so keep each press small
   if (e.code === "Minus" || e.code === "NumpadSubtract") zoomBy(1 / 1.05);
   if (e.repeat || paused) return;
-  if (e.code === "KeyM") toggleMap();
+  if (e.code === "Space") fireStage();
+  else if (e.code === "KeyM") toggleMap();
   else if (e.code === "Period") setWarp(warpI + 1);
   else if (e.code === "Comma") setWarp(warpI - 1);
 });

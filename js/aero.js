@@ -43,7 +43,7 @@ function applyAeroForce(part, f) {
     fx = -0.5 * rho * V * V * f.liftA * clamp(vx / V, -FIN_STALL, FIN_STALL);
   }
   b.applyForce(P(fx * cs - fy * sn, fx * sn + fy * cs), wp, true);
-  if (f.kind === "drag") sim.dragN += Math.hypot(fx, fy);        // for the flight recorder
+  if (f.kind === "drag" && !part.debris) sim.dragN += Math.hypot(fx, fy);        // for the flight recorder
 }
 
 function applyAero() {
@@ -78,7 +78,7 @@ function updateFlightStats() {
 function stabilityCal() {
   const h = sim.hull.body, a = h.getAngle(), ax = -Math.sin(a), ay = Math.cos(a), o = h.getWorldCenter();
   let m = 0, ms = 0, w = 0, ws = 0;
-  for (const p of sim.parts) {
+  for (const p of (sim.vessel || sim.parts)) {
     const c = p.body.getWorldCenter(), s = (c.x - o.x) * ax + (c.y - o.y) * ay, pm = p.body.getMass();
     m += pm; ms += pm * s;
     for (const f of p.forces) {

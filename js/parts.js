@@ -31,7 +31,7 @@ function bar(end, th) {              // a thin straight bar from (0,0) to end, t
 function engine(vacN) {              // a bell: narrow at the top where it joins, widest at the nozzle
   const sp = engineSpec(vacN), w = sp.width, L = sp.length;
   return { id: "engine", name: "engine", kind: "engine", color: "#7f8c8d", length: L, width: w, mass: sp.mass,
-           faceTop: 0.5 * w, faceBottom: null,                    // the nozzle end has nothing to join
+           faceTop: 0.5 * w, faceBottom: w, bottomOnly: "decoupler",   // only a decoupler can join under the nozzle: it wraps round it
            verts: [[-0.25 * w, L / 2], [0.25 * w, L / 2], [0.5 * w, -L / 2], [-0.5 * w, -L / 2]],
            forces: [{ kind: "thrust", at: [0, -L / 2], vac: sp.vac, sl: sp.sl, mdot: sp.mdot, scale: w,     // scale sizes the flame
                       minThrottle: RULES.minThrottle, gimbalMax: GIMBAL_MAX, gimbalRate: GIMBAL_RATE },
@@ -53,6 +53,14 @@ function nose(width, length) {
            faceTop: null, faceBottom: width,                      // the tip has nothing to join
            verts: [[-w, -h], [w, -h], [t, h], [-t, h]],
            forces: [{ kind: "drag", cdAxial: 0.3, cdSide: 0.8, depth: width }] };
+}
+
+function decoupler(width) {   // a thin ring that joins two body parts and lets go when its stage fires
+  const sp = decouplerSpec(width), w = width / 2, h = RULES.decouplerLength / 2;
+  return { id: "decoupler", name: "decoupler", kind: "decoupler", color: "#d4ac0d", length: RULES.decouplerLength, width: width, mass: sp.mass,
+           faceTop: width, faceBottom: width, kick: sp.kick,       // kick = the push (N*s) of its separation charge
+           verts: [[-w, -h], [w, -h], [w, h], [-w, h]],
+           forces: [{ kind: "drag", cdAxial: 0.1, cdSide: 0.8, depth: width }] };
 }
 
 /* ---- side parts: hung on the side of a tank. c = { px, half, jy, parent }: where the tank is (x), half its
@@ -90,5 +98,8 @@ const PART_TYPES = {
             make: function (s) { return nose(s.width, s.length); } },
   fin:    { label: "Fin", kind: "side", params: {}, make: function (s, side, c) { return makeFin(side, c); } },
   leg:    { label: "Leg", kind: "side", params: { drop: { min: 1, max: 8, step: 0.1, optional: true } },       // optional: older designs have no length
-            make: function (s, side, c) { return makeLeg(side, c, s.drop); } }
+            make: function (s, side, c) { return makeLeg(side, c, s.drop); } },
+  decoupler: { label: "Decoupler", kind: "stack", sideOK: false,
+            params: { width: { choices: RULES.tankWidths } },
+            make: function (s) { return decoupler(s.width); } }
 };

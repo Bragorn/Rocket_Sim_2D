@@ -40,6 +40,20 @@ function orderDesign(d) {            // every part after the one it joins (keeps
   return Object.assign({}, d, { parts: out.concat(pending) });
 }
 
+/* Move one engine or decoupler in the staging list. target = { kind: "row", index } puts it in that row (it fires with the others there),
+   { kind: "gap", index } makes a new row of its own before row number index (index = the number of rows: a new last row). Rows left empty vanish. */
+function restage(design, id, target) {
+  const rows = stagesOf(design), out = [];
+  for (let i = 0; i <= rows.length; i++) {
+    if (target.kind === "gap" && target.index === i) out.push([id]);
+    if (i === rows.length) break;
+    const r = rows[i].filter(function (x) { return x !== id; });
+    if (target.kind === "row" && target.index === i) r.push(id);
+    if (r.length) out.push(r);
+  }
+  return Object.assign({}, design, { stages: out });
+}
+
 /* base = the design without the part being placed. moved = the part (first) and anything attached to it.
    att = where the first one joins: { parent, anchor, dx } for a body part, { parent, anchor: "side", side, y } for a side part. */
 function attachTrial(base, moved, att) {

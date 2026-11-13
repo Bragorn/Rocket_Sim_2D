@@ -26,6 +26,9 @@ const RULES = {
   tankWidths: [1, 2, 4],    // the width classes (m)
   engineSizes: [100e3, 250e3, 600e3, 1500e3],   // the engines on offer: vacuum thrust, N
   tankMaxLength: 8, noseMaxLength: 4,   // m
+  decouplerLength: 0.2,     // m: a decoupler is a thin ring between two parts
+  decouplerPerM2: 40,       // kg per m2 of its cross-section
+  decouplerKick: 3000,      // N*s of separation push per m2 of cross-section: the charge that pushes the two pieces apart
   sideGridM: 0.1,           // fins and legs slide along a tank in steps of this (m)
   gridM: 0.5,               // tank and nose lengths come in multiples of this (m)
   tankDryMin: 0.02, tankDryMax: 0.20   // dry mass / fuel mass of a tank must land in this band (small tanks are
@@ -51,6 +54,11 @@ function noseSpec(width, length) {   // a cone with a blunt tip: skin area and m
   return { area: area, mass: area * RULES.noseAreal };
 }
 
+function decouplerSpec(width) {      // a ring between two parts: its weight, and the push of its separation charge
+  const area = Math.PI * width * width / 4;
+  return { mass: area * RULES.decouplerPerM2, kick: area * RULES.decouplerKick };
+}
+
 /* Test a list of parts (ROCKET.parts) against the rules. Returns a list of breaches (empty = all good). */
 function checkRules(parts) {
   const bad = [], ids = {};
@@ -69,6 +77,7 @@ function checkRules(parts) {
       const k = d.length / RULES.gridM;
       if (Math.abs(k - Math.round(k)) > 1e-9) bad.push(d.id + ": length " + d.length + " m is not a multiple of " + RULES.gridM + " m");
     }
+    if (d.kind === "decoupler" && d.mass < decouplerSpec(d.width).mass - 1e-9) bad.push(d.id + ": decoupler is lighter than the rules allow");
     for (const f of d.forces || []) {
       if (f.kind !== "thrust") continue;
       if (d.mass < f.vac / (RULES.engineTWR * G0) - 1e-9) bad.push(d.id + ": engine is lighter than the rules allow (thrust-to-weight above " + RULES.engineTWR + ")");

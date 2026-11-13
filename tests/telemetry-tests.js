@@ -73,7 +73,7 @@ const refOffset = () => run("sim.refOffset");
 console.log("\n1. The recorder");
 step(200);
 check(run("sim.started") === false && run("sim.t") === 0 && run("tele.n") === 0, "on the pad, before the engine is lit: the flight clock stands still and nothing is recorded");
-run("controls").throttle = 1; step(600);
+run("fireStage")(); run("controls").throttle = 1; step(600);
 check(run("sim.started") === true && near(run("sim.t"), 10, 0.05), `the clock starts at ignition (T+${run("sim.t").toFixed(1)} s after 10 s of burning)`);
 const n10 = run("tele.n");
 check(n10 >= 199 && n10 <= 203, `about 20 samples a second: ${n10} samples in 10 s`);
@@ -183,7 +183,7 @@ run("menuBack")(); buttons().find(b => /^Performance/.test(label(b))).listeners.
 check(run("showPerf") === true, "the performance switch turns the readout on");
 run("closeMenu")();
 // the report
-run("resetAll")(); run("controls").throttle = 1; step(300);
+run("resetAll")(); run("fireStage")(); run("controls").throttle = 1; step(300);
 const made0 = canvasesMade;
 run("openMenu")(); buttons().find(b => /^Flight report/.test(label(b))).listeners.click[0]();
 check(run("menuUi.panel") === "report" && canvasesMade - made0 === run("REPORT_GRAPHS.length"), `the report draws its ${run("REPORT_GRAPHS.length")} graphs once, when it is opened`);

@@ -182,7 +182,7 @@ function rebuildText() {
   ];
   const stab = cal === null ? "none" : cal.toFixed(1) + " cal" + (cal < 0 ? "  UNSTABLE" : cal < 0.5 ? "  marginal" : "");
   barText = {
-    fuelFrac: sim.fuel / sim.fuelFull, fuelLabel: "FUEL " + sim.fuel.toFixed(0) + " kg", thrLabel: "THROTTLE " + Math.round(controls.throttle * 100) + "%", thr: controls.throttle,
+    fuelFrac: sim.fuelFull > 0 ? sim.fuel / sim.fuelFull : 0, fuelLabel: "FUEL " + sim.fuel.toFixed(0) + " kg", thrLabel: "THROTTLE " + Math.round(controls.throttle * 100) + "%", thr: controls.throttle,
     cols: [[190, ["Mass       " + mass.toFixed(0) + " kg", "Delta-v vac " + dv.toFixed(0) + " m/s", "T/W        " + twr.toFixed(2), "Stability  " + stab]],
            [395, ["Tilt       " + tilt.toFixed(1) + " deg", "AoA        " + sim.aoa.toFixed(1) + " deg", "Damping    " + (controls.damping ? "ON" : "off"), "Time       " + (sim.started ? "T+" + sim.t.toFixed(1) + " s" : "on the pad")]],
            [555, ["Air        " + sim.rho.toFixed(3) + " kg/m3", "Dyn press  " + (sim.q / 1000).toFixed(2) + " kPa", "Max Q      " + (sim.maxQ / 1000).toFixed(2) + " kPa", "Thrust     " + (sim.thrust / 1000).toFixed(0) + " kN"]]],
@@ -243,6 +243,23 @@ function drawBar() {
   c.fillText("Esc: menu", 190, y0 + BAR_H - 5);
 }
 
+function drawStaging() {             // top right: the staging list. Fired rows are gone; the next one is lit. Space fires it.
+  if (!sim.stages || sim.stages.length === 0) return;
+  const lines = [{ t: "STAGING   (Space)", c: "#8a98a3" }];
+  if (sim.stages.length - sim.stageNext <= 0) lines.push({ t: "all stages fired", c: "#8a98a3" });
+  for (let i = sim.stageNext; i < sim.stages.length && lines.length < 14; i++) {
+    lines.push({ t: "Stage " + (i + 1) + (i === sim.stageNext ? "   < next" : ""), c: i === sim.stageNext ? "#f0b33c" : "#8a98a3" });
+    for (const id of sim.stages[i]) {
+      const L = sim.labels[id] || { label: id, verb: "" };
+      lines.push({ t: "  " + L.verb + " " + L.label, c: i === sim.stageNext ? "#e8eef2" : "#aab6bf" });
+    }
+  }
+  const w = 210, h = lines.length * 15 + 10, x = W - w - 12, y = showPerf ? 100 : 8;
+  c.font = "12px monospace"; c.textAlign = "left"; c.textBaseline = "top";
+  c.fillStyle = "rgba(10,14,18,0.55)"; c.fillRect(x, y, w, h);
+  for (let i = 0; i < lines.length; i++) { c.fillStyle = lines[i].c; c.fillText(lines[i].t, x + 8, y + 5 + i * 15); }
+}
+
 function drawPerf() {                                         // switched on from the pause menu
   const lines = ["FPS        " + (1000 / perf.frame).toFixed(0), "Frame      " + perf.frame.toFixed(1) + " ms", "Physics    " + perf.sim.toFixed(2) + " ms, " + perf.steps + " steps",
                  "Drawing    " + perf.draw.toFixed(2) + " ms (CPU)", "Samples    " + tele.n + " / " + TELE_MAX];
@@ -267,5 +284,6 @@ function draw() {
   if (now - textAt > 100) { textAt = now; rebuildText(); }
   drawPanel(panelLines);
   drawBar();
+  drawStaging();
   if (showPerf) drawPerf();
 }

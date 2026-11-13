@@ -22,8 +22,12 @@ let mirror = true;                   // fins and legs go in pairs
 let view = { cx: 0, cy: 3, scale: 28 };   // the middle of the screen in meters, and pixels per meter
 let W = 100, H = 100;
 const mouse = { px: 0, py: 0, inside: false };
-const pal = { tab: "tanks", tankW: 2, tankL: 4, noseW: 2, noseL: 1.5, legDrop: 2 };
+const pal = { tab: "tanks", tankW: 2, tankL: 4, noseW: 2, noseL: 1.5, legDrop: 2, decW: 2 };
 const ui = { rows: {} };
+const stageUi = { targets: [], chips: {}, shown: undefined };   // the staging bar: drop targets, the chips by part id, which part is shown selected
+let stageDrag = null;                // a chip being dragged: { id, x, y, moved, hot }
+const stagingEl = document.getElementById("staging");
+function withStages(d) { return Object.assign({}, d, { stages: stagesOf(d) }); }   // the design with its staging list cleaned up
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 const fmtKg = (kg) => kg >= 1000 ? (kg / 1000).toFixed(1) + " t" : Math.round(kg) + " kg";
@@ -58,7 +62,7 @@ function fitView() {
 /* ---- the design ---- */
 function setDesign(d, record) {
   if (record !== false) { history.push(JSON.stringify(design)); if (history.length > 60) history.shift(); }
-  design = d;
+  design = withStages(d);
   if (selected && !partById(design, selected)) selected = null;
   try { localStorage.setItem("rocketsim.draft", JSON.stringify(design)); } catch (e) { /* storage blocked: fine */ }
   refresh();
@@ -150,7 +154,65 @@ function refresh() {
   const names = Object.keys(savedDesigns());
   for (const n of names) { const o = el("option", "", n); o.value = n; ui.saved.appendChild(o); }
   if (!names.length) { const o = el("option", "", "(no saved designs)"); o.value = ""; ui.saved.appendChild(o); }
+  renderStaging();
 }
+
+/* ---- the staging bar: the order engines light and decouplers let go. Row 1 fires first; Space fires one row in flight. ---- */
+function syncStageSel() {
+  stageUi.shown = selected;
+  for (const id in stageUi.chips) stageUi.chips[id].className = "schip" + (id === selected ? " on" : "");
+}
+
+function renderStaging() {
+  const box = stagingEl;
+  box.textContent = "";
+  stageUi.targets = []; stageUi.chips = {};
+  const rows = stagesOf(design), st = design.parts.length ? statsOf(design) : null, plan = st ? st.stages : [];
+  box.appendChild(el("div", "sec", "Staging"));
+  box.appendChild(el("div", "hint", rows.length ? "Space fires one row in flight. Drag a part onto another row to fire it with that row, or into a gap to give it a row of its own." : "Engines and decouplers appear here."));
+  const gap = function (i) { const g = el("div", "sgap"); box.appendChild(g); stageUi.targets.push({ el: g, kind: "gap", index: i, cls: "sgap" }); };
+  gap(0);
+  rows.forEach(function (row, i) {
+    const r = el("div", "srow"), p = plan[i];
+    r.appendChild(el("div", "shead", "Stage " + (i + 1) + (p && p.dv > 0 ? "   " + Math.round(p.dv) + " m/s   T/W " + p.twr.toFixed(1) : "")));
+    for (const id of row) {
+      const spec = partById(design, id), c = el("div", "schip", stageLabel(spec) + " : " + STAGEABLE[spec.type]);
+      c.style.borderLeftColor = previewOf(spec).color;
+      c.addEventListener("mousedown", function (e) { e.preventDefault(); stageDrag = { id: id, x: e.clientX, y: e.clientY, moved: false, hot: null }; });
+      stageUi.chips[id] = c;
+      r.appendChild(c);
+    }
+    box.appendChild(r);
+    stageUi.targets.push({ el: r, kind: "row", index: i, cls: "srow" });
+    gap(i + 1);
+  });
+  syncStageSel();
+}
+
+window.addEventListener("mousemove", function (e) {
+  if (!stageDrag) return;
+  if (Math.hypot(e.clientX - stageDrag.x, e.clientY - stageDrag.y) > 4) stageDrag.moved = true;
+  if (!stageDrag.moved) return;
+  let hot = null;
+  for (const t of stageUi.targets) {
+    const r = t.el.getBoundingClientRect();
+    if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) { hot = t; if (t.kind === "gap") break; }   // a gap wins over the row beside it
+  }
+  stageDrag.hot = hot;
+  for (const t of stageUi.targets) t.el.className = t.cls + (t === hot ? " hot" : "");
+});
+
+window.addEventListener("mouseup", function () {
+  const d = stageDrag;
+  stageDrag = null;
+  if (!d) return;
+  if (!d.moved) { selected = d.id; syncStageSel(); return; }       // a click just selects the part
+  if (d.hot) {
+    const next = restage(design, d.id, { kind: d.hot.kind, index: d.hot.index });
+    if (JSON.stringify(next.stages) !== JSON.stringify(stagesOf(design))) { setDesign(next); return; }
+  }
+  refresh();
+});
 
 /* ---- buttons ---- */
 function launch() {
@@ -190,7 +252,7 @@ function importFile() {
 }
 
 /* ---- the palette ---- */
-const TABS = [["tanks", "Tanks"], ["engines", "Engines"], ["noses", "Nose cones"], ["side", "Fins & legs"]];
+const TABS = [["tanks", "Tanks"], ["engines", "Engines"], ["noses", "Noses"], ["side", "Fins/Legs"], ["stage", "Decoupler"]];
 
 function thumb(def) {                // a small picture of a part
   const c = el("canvas"); c.width = 84; c.height = 84;
@@ -246,7 +308,16 @@ function choice(label, options, get, set, fmt) {
 }
 function wrap(...rows) { const d = el("div"); for (const r of rows) d.appendChild(r); return d; }
 
+function renderStageCards() {
+  ui.cards.textContent = "";
+  const sp = decouplerSpec(pal.decW);
+  ui.cards.appendChild(el("div", "hint", "A decoupler joins two body parts and lets go when its stage fires. To add a stage below, drop it under the engine (it has to be at least as wide as the engine), then build the next stage under it."));
+  ui.cards.appendChild(card({ type: "decoupler", width: pal.decW }, "Decoupler " + pal.decW + " m", ["mass " + fmtKg(sp.mass), "separation push " + (sp.kick / 1000).toFixed(1) + " kN*s"],
+    wrap(choice("Width", RULES.tankWidths, () => pal.decW, (v) => { pal.decW = v; }, (v) => v + " m"))));
+}
+
 function renderCards() {
+  if (pal.tab === "stage") { renderStageCards(); return; }
   ui.cards.textContent = "";
   if (pal.tab === "tanks") {
     const sp = tankSpec(pal.tankW, pal.tankL);
@@ -454,6 +525,7 @@ function drawGhost() {
 }
 
 function frame() {
+  if (stageUi.shown !== selected) syncStageSel();
   drawGrid();
   const shown = drag && drag.kind === "move" ? drag.base : design;
   if (shown.parts.length) drawParts(shown);
@@ -470,7 +542,7 @@ function frame() {
   const fromHash = designFromHash(location.hash);              // coming back from the game (B), or a shared link
   let d = fromHash.design;
   if (!d) { try { const t = localStorage.getItem("rocketsim.draft"); if (t) { const dd = JSON.parse(t); if (validateDesign(dd, true).length === 0) d = dd; } } catch (e) { /* ok */ } }
-  design = d || cloneDesign(DESIGN);
+  design = withStages(d || cloneDesign(DESIGN));
   buildLeft(); buildRight();
   resize();
   refresh();

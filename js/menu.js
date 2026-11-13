@@ -96,7 +96,7 @@ function panelMain(box) {
 
 const KEY_LIST = [["W / S", "throttle up / down (hold)"], ["Z / X", "full throttle / engine off"], ["A / D", "steer (turns the engine and the reaction wheel)"],
                   ["T", "rotation damping on / off"], ["M", "map view (or the Map button)"], ["< / >", "time warp slower / faster (or the - and + buttons)"],
-                  ["+ / - / wheel", "zoom"], ["Esc", "this menu"], ["Space", "(kept for staging, later)"]];
+                  ["+ / - / wheel", "zoom"], ["Esc", "this menu"], ["Space", "next stage (the staging list, top right)"]];
 
 function panelControls(box) {
   box.appendChild(mel("div", "mh", "Controls"));

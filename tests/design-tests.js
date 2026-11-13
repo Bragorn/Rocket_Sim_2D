@@ -75,6 +75,7 @@ console.log("\n2. Checking designs");
 const t24 = tank("t", 2, 4);
 check(bad(withParts(t24, eng("e", "t"))).length === 0, "a tank with an engine under it is valid");
 check(bad(withParts(t24)).some(m => /engine/.test(m)), "no engine: refused");
+check(bad(withParts(t24, eng("e", "t"), { id: "e2", type: "engine", thrust: 250000, parent: "t", anchor: "top" })).some(m => /nozzle end/.test(m)), "an engine on top of a tank (nozzle against it): refused");
 check(bad(withParts({ id: "n", type: "nose", width: 2, length: 1.5 })).some(m => /tank/.test(m)), "no tank: refused");
 check(bad(withParts(tank("t", 1, 4), eng("e", "t", 0, 1500000))).some(m => /wider/.test(m)), "a 1.6 m engine under a 1 m tank: refused (wider than the face)");
 check(bad(withParts(tank("t", 1, 4), eng("e", "t", 0, 600000))).length === 0, "a 1 m engine under a 1 m tank: fits exactly");
@@ -129,7 +130,7 @@ check(Object.keys(run("savedDesigns")()).length === 0 && run("saveDesign")("x", 
 
 /* ---- 4. fuel pool and engines in the world (stand-in physics) ---- */
 console.log("\n4. Several tanks and engines in the world");
-function load(design) { ctx.__d = design; run("ROCKET = assemble(__d)"); run("buildWorld")(); }
+function load(design) { ctx.__d = design; run("ROCKET = assemble(__d)"); run("buildWorld")(); run("fireStage")(); }
 function burn(seconds, throttle) {
   run("controls").throttle = throttle;
   for (let i = 0; i < seconds * 60; i++) run("stepSim")();
