@@ -29,6 +29,10 @@ const RULES = {
   decouplerLength: 0.2,     // m: a decoupler is a thin ring between two parts
   decouplerPerM2: 40,       // kg per m2 of its cross-section
   decouplerKick: 3000,      // N*s of separation push per m2 of cross-section: the charge that pushes the two pieces apart
+  wheelLength: 0.2,         // m: a reaction wheel ring is as thin as a decoupler
+  wheelPerM2: 60,           // kg per m2 of a reaction wheel's cross-section (flywheel, motor and casing)
+  wheelTorquePerKg: 191,    // N*m of turning push per kg of wheel. MADE UP: real wheels are far weaker for their weight. It is set so one
+                            // 2 m wheel (about 190 kg) gives 36 kN*m, which is what the old fixed reaction wheel gave
   sideGridM: 0.1,           // fins and legs slide along a tank in steps of this (m)
   gridM: 0.5,               // tank and nose lengths come in multiples of this (m)
   tankDryMin: 0.02, tankDryMax: 0.20   // dry mass / fuel mass of a tank must land in this band (small tanks are
@@ -48,7 +52,7 @@ function engineSpec(vacN) {          // everything about an engine from its vacu
            mdot: vacN / (RULES.ispVac * G0) };                     // fuel burned per second at full throttle, kg/s
 }
 
-function noseSpec(width, length) {   // a cone with a blunt tip: skin area and mass
+function noseSpec(width, length) {   // a cone with a blunt tip: skin area and mass (the built-in wheel is added in parts.js)
   const r1 = width / 2, r2 = 0.1 * width;
   const area = Math.PI * (r1 + r2) * Math.hypot(length, r1 - r2);
   return { area: area, mass: area * RULES.noseAreal };
@@ -57,6 +61,11 @@ function noseSpec(width, length) {   // a cone with a blunt tip: skin area and m
 function decouplerSpec(width) {      // a ring between two parts: its weight, and the push of its separation charge
   const area = Math.PI * width * width / 4;
   return { mass: area * RULES.decouplerPerM2, kick: area * RULES.decouplerKick };
+}
+
+function wheelSpec(width) {          // a reaction wheel for a body this wide: its weight and its turning push (N*m). The torque follows the weight
+  const area = Math.PI * width * width / 4, mass = area * RULES.wheelPerM2;
+  return { mass: mass, torque: mass * RULES.wheelTorquePerKg };
 }
 
 /* Test a list of parts (ROCKET.parts) against the rules. Returns a list of breaches (empty = all good). */
@@ -79,6 +88,7 @@ function checkRules(parts) {
     }
     if (d.kind === "decoupler" && d.mass < decouplerSpec(d.width).mass - 1e-9) bad.push(d.id + ": decoupler is lighter than the rules allow");
     for (const f of d.forces || []) {
+      if (f.kind === "wheel" && d.mass < f.torque / RULES.wheelTorquePerKg - 1e-9) bad.push(d.id + ": reaction wheel is lighter than the rules allow (turning push per kg above " + RULES.wheelTorquePerKg + " N*m)");
       if (f.kind !== "thrust") continue;
       if (d.mass < f.vac / (RULES.engineTWR * G0) - 1e-9) bad.push(d.id + ": engine is lighter than the rules allow (thrust-to-weight above " + RULES.engineTWR + ")");
       if (f.vac / (f.mdot * G0) > RULES.ispVac + 1e-9) bad.push(d.id + ": engine efficiency above " + RULES.ispVac + " s in vacuum");

@@ -17,8 +17,8 @@ const VEL_IT = 16, POS_IT = 6;       // solver effort per step (more = stiffer j
 /* ---- steering ---- */
 const GIMBAL_MAX = 6 * Math.PI / 180;// how far an engine can swivel, radians
 const GIMBAL_RATE = 1.0;             // how fast it swivels, rad/s
-const WHEEL_MAX = 36000;             // reaction wheel torque, N*m
-const DAMP_K = 24000;                // how hard "rotation damping" fights spin (N*m per rad/s)
+const DAMP_PER_TORQUE = 2 / 3;       // how hard "rotation damping" fights spin: N*m per rad/s for every N*m of reaction wheel torque.
+                                     // The torque itself comes from the reaction wheels in the rocket (nose cones have one built in, see rules.js)
 
 /* ---- atmosphere ---- */
 const RHO0 = 1.225;                  // air density at the ground, kg/m3

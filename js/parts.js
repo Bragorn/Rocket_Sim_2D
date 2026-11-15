@@ -16,6 +16,7 @@
                 drag    air drag on the part: cdAxial and cdSide (drag coefficients along and across the part),
                         depth (how far the part reaches into the screen, m). Areas come from the shape.
                 fin     a tail surface: a sideways push that grows with the angle of the air: cn, depth
+                wheel   a reaction wheel: torque (N*m), the turning push it adds to the rocket it is part of
    Special flags: hull (the body that steering torque turns and the camera follows),
                   fuel (a part that holds fuel: dry and full mass, kg).
    design.js adds where each part sits (at) and what it is welded to (joint).
@@ -47,12 +48,13 @@ function tank(width, length) {
            forces: [{ kind: "drag", cdAxial: 0.1, cdSide: 0.8, depth: width }] };
 }
 
-function nose(width, length) {
-  const sp = noseSpec(width, length), w = width / 2, t = 0.1 * width, h = length / 2;
-  return { id: "nose", name: "nose cone", kind: "nose", color: "#e67e22", length: length, width: width, mass: sp.mass,
+function nose(width, length) {       // a nose cone carries a reaction wheel of its own width, built in: its weight is part of the nose's
+  const sp = noseSpec(width, length), wl = wheelSpec(width), w = width / 2, t = 0.1 * width, h = length / 2;
+  return { id: "nose", name: "nose cone", kind: "nose", color: "#e67e22", length: length, width: width, mass: sp.mass + wl.mass,
            faceTop: null, faceBottom: width,                      // the tip has nothing to join
            verts: [[-w, -h], [w, -h], [t, h], [-t, h]],
-           forces: [{ kind: "drag", cdAxial: 0.3, cdSide: 0.8, depth: width }] };
+           forces: [{ kind: "drag", cdAxial: 0.3, cdSide: 0.8, depth: width },
+                    { kind: "wheel", torque: wl.torque }] };
 }
 
 function decoupler(width) {   // a thin ring that joins two body parts and lets go when its stage fires
@@ -61,6 +63,15 @@ function decoupler(width) {   // a thin ring that joins two body parts and lets 
            faceTop: width, faceBottom: width, kick: sp.kick,       // kick = the push (N*s) of its separation charge
            verts: [[-w, -h], [w, -h], [w, h], [-w, h]],
            forces: [{ kind: "drag", cdAxial: 0.1, cdSide: 0.8, depth: width }] };
+}
+
+function wheel(width) {       // a thin ring like a decoupler, but it stays: extra turning push for a heavy rocket
+  const sp = wheelSpec(width), w = width / 2, h = RULES.wheelLength / 2;
+  return { id: "wheel", name: "reaction wheel", kind: "wheel", color: "#16a085", length: RULES.wheelLength, width: width, mass: sp.mass,
+           faceTop: width, faceBottom: width,
+           verts: [[-w, -h], [w, -h], [w, h], [-w, h]],
+           forces: [{ kind: "wheel", torque: sp.torque },
+                    { kind: "drag", cdAxial: 0.1, cdSide: 0.8, depth: width }] };
 }
 
 /* ---- side parts: hung on the side of a tank. c = { px, half, jy, parent }: where the tank is (x), half its
@@ -101,5 +112,8 @@ const PART_TYPES = {
             make: function (s, side, c) { return makeLeg(side, c, s.drop); } },
   decoupler: { label: "Decoupler", kind: "stack", sideOK: false,
             params: { width: { choices: RULES.tankWidths } },
-            make: function (s) { return decoupler(s.width); } }
+            make: function (s) { return decoupler(s.width); } },
+  wheel:  { label: "Reaction wheel", kind: "stack", sideOK: false,
+            params: { width: { choices: RULES.tankWidths } },
+            make: function (s) { return wheel(s.width); } }
 };

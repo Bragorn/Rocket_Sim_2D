@@ -49,6 +49,20 @@ check(caught.some(m => /dry mass/.test(m)) && caught.some(m => /lighter than the
 const dup = run("checkRules")([run("tank(2, 4)"), run("tank(2, 4)")]);
 check(dup.some(m => /twice/.test(m)), "the checker catches two parts with the same id");
 
+/* ---- reaction wheels ---- */
+console.log("\n1b. Reaction wheels");
+const w2 = run("wheelSpec(2)"), w1 = run("wheelSpec(1)"), w4 = run("wheelSpec(4)");
+check(near(w2.torque, 36000, 10), `a 2 m wheel (${w2.mass.toFixed(0)} kg) turns with ${(w2.torque / 1000).toFixed(1)} kN*m, the push the old fixed wheel had`);
+check(near(w4.torque, 4 * w2.torque, 1e-6) && near(w1.torque * 4, w2.torque, 1e-6) && near(w4.mass, 4 * w2.mass, 1e-6), "turning push and weight both follow the wheel's cross-section (twice as wide: four times)");
+check(near(w2.torque / w2.mass, RULES.wheelTorquePerKg, 1e-9), `every wheel gives ${RULES.wheelTorquePerKg} N*m per kg`);
+const nz = run("nose(2, 1.5)"), nzf = nz.forces.find(f => f.kind === "wheel");
+check(nzf && near(nzf.torque, w2.torque, 1e-9) && near(nz.mass, run("noseSpec(2, 1.5)").mass + w2.mass, 1e-9), `a 2 m nose cone carries a built-in wheel: its weight is the skin plus the wheel (${nz.mass.toFixed(0)} kg)`);
+const ring = run("wheel(2)");
+check(near(ring.length, RULES.wheelLength, 1e-9) && ring.faceTop === 2 && ring.faceBottom === 2 && near(ring.mass, w2.mass, 1e-9), "a wheel ring is a thin ring like a decoupler, the same weight as the built-in one");
+check(run("checkRules")([ring]).length === 0 && run("checkRules")([nz]).length === 0, "the ring and the nose cone follow the rules");
+const cheatWheel = Object.assign(run("wheel(2)"), { id: "w2", mass: 50 });
+check(run("checkRules")([cheatWheel]).some(m => /reaction wheel is lighter/.test(m)), "the rules catch a wheel that is too light for its turning push");
+
 /* ---- 2. engines in air ---- */
 console.log("\n2. Engines and air pressure");
 const th = eng.forces[0];

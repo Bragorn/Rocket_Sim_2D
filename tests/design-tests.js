@@ -105,15 +105,28 @@ check(bad(legD({})).length === 0 && bad(legD({ drop: 4 })).length === 0 && bad(l
 const footOf = (d) => { let low = Infinity; for (const p of run("assemble")(d, { keepFrame: true }).parts) if (p.kind === "leg") for (const v of p.verts) low = Math.min(low, p.at[1] + v[1]); return low; };
 check(footOf(legD({ drop: 4 })) < footOf(legD({})) - 2, "a longer leg reaches lower");
 check(near(run("assemble")(legD({}), { keepFrame: true }).parts.find(p => p.id === "lL").mass, run("assemble")(DESIGN, { keepFrame: true }).parts.find(p => p.id === "legL").mass, 1e-6), "a leg with no length set is the same as before (1.7 m)");
-const warn = (d) => run("designWarnings")(d);
-check(warn(DESIGN).length === 0, "the starting rocket has no warnings");
+const warn = (d) => run("designWarnings")(d).filter(m => !/reaction wheel/.test(m));          // the wheel warning has its own checks below
+check(warn(DESIGN).length === 0 && run("designWarnings")(DESIGN).length === 0, "the starting rocket has no warnings");
 const hugeRocket = withParts(tank("t", 4, 8), eng("a", "t", -1, 1500000), eng("b", "t", 1, 1500000), { id: "l", type: "leg", parent: "t", anchor: "side", side: 0, y: 0.4 });
 check(bad(hugeRocket).length === 0 && warn(hugeRocket).length === 1 && /reaches lower than the legs/.test(warn(hugeRocket)[0]), `a huge engine hangs lower than the default legs: warned, but still allowed ("${warn(hugeRocket)[0]}")`);
 const need = parseFloat(/about ([\d.]+) m long/.exec(warn(hugeRocket)[0])[1]);
 const fixed = withParts(tank("t", 4, 8), eng("a", "t", -1, 1500000), eng("b", "t", 1, 1500000), { id: "l", type: "leg", parent: "t", anchor: "side", side: 0, y: 0.4, drop: need });
 check(warn(fixed).length === 0, `legs of the suggested length (${need.toFixed(1)} m) clear the warning`);
 check(warn(withParts(t24, eng("e", "t"))).length === 1 && /no legs/.test(warn(withParts(t24, eng("e", "t")))[0]), "no legs: warned that it would stand on its engine");
-check(warn({ version: 1, parts: [] }).length === 0, "an empty design has no warnings");
+check(run("designWarnings")({ version: 1, parts: [] }).length === 0, "an empty design has no warnings");
+
+/* ---- reaction wheels in designs ---- */
+console.log("\n2c. Reaction wheels in designs");
+const ringOn = (extra) => withParts(t24, eng("e", "t"), Object.assign({ id: "w", type: "wheel", width: 2, parent: "t", anchor: "top" }, extra));
+check(bad(ringOn({})).length === 0, "a reaction wheel ring on top of a tank is valid");
+check(bad(ringOn({ width: 3 })).some(m => /not allowed/.test(m)), "a 3 m wheel: refused (not a width class)");
+check(bad(withParts(tank("t", 1, 4), eng("e", "t"), { id: "w", type: "wheel", width: 2, parent: "t", anchor: "top" })).some(m => /wider/.test(m)), "a 2 m wheel on a 1 m tank: refused (wider than the face)");
+check(bad(withParts(t24, eng("e", "t"), { id: "w", type: "wheel", width: 2, parent: "e", anchor: "bottom" })).some(m => /only a decoupler/.test(m)), "a wheel straight under an engine: refused (only a decoupler goes there)");
+check(bad(withParts(t24, eng("e", "t"), { id: "w", type: "wheel", width: 2, parent: "t", anchor: "top" }, { id: "n", type: "nose", width: 2, length: 1.5, parent: "w", anchor: "top" })).length === 0, "a nose cone can sit on top of a wheel ring");
+check(run("designWarnings")(withParts(t24, eng("e", "t"))).some(m => /no reaction wheel/.test(m)), "a rocket with no nose and no wheel is warned that it can only steer with its engine");
+check(!run("designWarnings")(ringOn({})).some(m => /no reaction wheel/.test(m)), "a wheel ring clears that warning");
+check(!run("designWarnings")(withParts(t24, eng("e", "t"), { id: "n", type: "nose", width: 2, length: 1.5, parent: "t", anchor: "top" })).some(m => /no reaction wheel/.test(m)), "so does a nose cone, which has one built in");
+check(run("checkRules")(run("assemble")(ringOn({}), { keepFrame: true }).parts).length === 0, "a rocket with a wheel ring follows the rules");
 
 /* ---- 3. saving and loading ---- */
 console.log("\n3. Saving and loading");
@@ -169,6 +182,32 @@ check(flameA > 0, "both engines produce thrust together");
 load(DESIGN); s = run("sim"); burn(200, 1);
 check(s.fuel === 0 && s.thrust === 0 && s.emptyLogged, "an empty tank shuts the engine off");
 check(near(s.hull.body.getMass(), s.tanks[0].dry, 1), "and the empty tank weighs only its dry mass");
+
+/* ---- 5. reaction wheels in flight (stand-in physics: the torque each step is recorded) ---- */
+console.log("\n5. Reaction wheels in flight");
+const w2 = run("wheelSpec")(2).torque;
+function steerTorque(design, key) {                      // the torque pushed on the hull in one step with a steering key held
+  load(design); const sm = run("sim"), k = run("keys");
+  k[key] = true; sm.hull.body.torque = 0; run("stepSim")(); k[key] = false;
+  return { torque: sm.hull.body.torque, max: sm.wheelMax };
+}
+let tq = steerTorque(DESIGN, "KeyA");
+check(near(tq.max, w2, 1e-6) && near(tq.torque, w2, 1e-6), `the starting rocket turns with its nose cone's wheel: ${(tq.torque / 1000).toFixed(1)} kN*m, the same as before`);
+tq = steerTorque(DESIGN, "KeyD");
+check(near(tq.torque, -w2, 1e-6), "steering the other way pushes the other way");
+tq = steerTorque(withParts(t24, eng("e", "t")), "KeyA");
+check(tq.max === 0 && tq.torque === 0, "a rocket with no nose and no wheel has no turning push at all");
+tq = steerTorque(ringOn({}), "KeyA");
+check(near(tq.max, w2, 1e-6) && near(tq.torque, w2, 1e-6), "a wheel ring on a rocket with no nose gives it the push");
+const both = withParts(t24, eng("e", "t"), { id: "w", type: "wheel", width: 2, parent: "t", anchor: "top" }, { id: "n", type: "nose", width: 2, length: 1.5, parent: "w", anchor: "top" });
+tq = steerTorque(both, "KeyA");
+check(near(tq.max, 2 * w2, 1e-6), "a nose cone and a wheel ring add up: twice the push");
+const big = withParts(tank("t", 4, 4), eng("e", "t", 0, 600000), { id: "n", type: "nose", width: 4, length: 2, parent: "t", anchor: "top" });
+check(near(steerTorque(big, "KeyA").max, 4 * w2, 1e-6), "a 4 m nose cone's wheel has four times the push of a 2 m one");
+load(DESIGN); s = run("sim"); s.hull.body.getAngularVelocity = () => 0.5;
+run("keys").KeyA = false; s.hull.body.torque = 0; run("stepSim")();
+check(near(s.hull.body.torque, -run("DAMP_PER_TORQUE") * w2 * 0.5, 1e-6), "with damping on, a spin is fought with a push that follows the wheel's strength");
+s.hull.body.getAngularVelocity = () => 0;
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);

@@ -56,6 +56,7 @@ function buildWorld() {
           rootHull: hull, vessel: parts, zones: [], topPart: topPart, labels: ROCKET.labels || {},
           stages: (ROCKET.stages || []).map(function (r) { return r.slice(); }), stageNext: 0,   // the staging list and the row that fires next
           tanks: tanks, fuelFull: fuelFull, fuel: fuelFull,             // all tanks share one pool of fuel, drained evenly
+          wheelMax: 0,                                                  // the turning push (N*m) of the reaction wheels on the rocket you fly
           refOffset: ROCKET.hull.at[1] + PAD_GAP,                       // height of the hull's centre on the pad: altitudes are shown minus this
           thrust: 0, airborne: false, t: 0, emptyLogged: false,
           started: false, flown: false, touchdownSpeed: null,           // started = engine lit once (the flight clock runs); flown = has been in the air
@@ -98,6 +99,9 @@ function updateVessels() {
   const whole = sets(false), feed = sets(true), mine = whole(sim.topPart.idx);
   for (const p of sim.parts) { p.group = whole(p.idx); p.debris = p.group !== mine; }
   sim.vessel = sim.parts.filter(function (p) { return !p.debris; });
+
+  sim.wheelMax = 0;                  // the reaction wheels still on the rocket you fly add up to its turning push
+  for (const p of sim.vessel) for (const f of p.forces) if (f.kind === "wheel") sim.wheelMax += f.torque;
 
   const zones = {};
   for (const t of sim.tanks) {

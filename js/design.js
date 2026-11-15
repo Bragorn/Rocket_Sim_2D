@@ -5,7 +5,7 @@
    A rocket design is plain data (it saves as text): a list of parts, each one
    joined to an earlier one. The first part is the root.
      { id, type, ...the part's settings (see PART_TYPES), parent, anchor, ... }
-   Body parts (tank, engine, nose) join end to end:
+   Body parts (tank, engine, nose, decoupler, reaction wheel) join end to end:
      anchor "top"    sits on top of its parent,   anchor "bottom" hangs below it.
      dx              slides it sideways along that face (m); default 0. It has to stay inside the face.
    Side parts (fin, leg) hang on a tank:
@@ -47,7 +47,7 @@ function stagesOf(design) {          // the staging rows, cleaned: only real eng
   return rows;
 }
 
-/* The starting rocket: a 2 m x 4 m tank, a 250 kN engine under it, a nose on top, a pair of legs and a pair of fins. */
+/* The starting rocket: a 2 m x 4 m tank, a 250 kN engine under it, a nose on top (with a reaction wheel built in), a pair of legs and a pair of fins. */
 const DESIGN = {
   version: 1, name: "Starting rocket", stages: [["engine"]],
   parts: [
@@ -199,8 +199,9 @@ function validateDesign(design, partial) {
 function designWarnings(design) {
   const out = [];
   if (!design || !design.parts || design.parts.length === 0) return out;
+  const built = assemble(design, { keepFrame: true }).parts;
   let lowLeg = Infinity, lowBody = Infinity, lowName = "";
-  for (const def of assemble(design, { keepFrame: true }).parts) for (const v of def.verts) {
+  for (const def of built) for (const v of def.verts) {
     const y = def.at[1] + v[1];
     if (def.kind === "leg") lowLeg = Math.min(lowLeg, y);
     else if (y < lowBody) { lowBody = y; lowName = def.name; }
@@ -213,6 +214,7 @@ function designWarnings(design) {
     const now = Math.min.apply(null, legs.map(function (p) { return p.drop === undefined ? 1.7 : p.drop; }));
     out.push("the " + lowName + " reaches lower than the legs, so it would stand on it. Legs about " + (Math.ceil((now + lowLeg - lowBody + 0.15) * 10) / 10).toFixed(1) + " m long (now " + now.toFixed(1) + " m) would reach.");
   }
+  if (!built.some(function (def) { return (def.forces || []).some(function (f) { return f.kind === "wheel"; }); })) out.push("no reaction wheel (every nose cone has one built in): it can only steer with its engine while the engine burns");
   return out;
 }
 

@@ -3,8 +3,8 @@
 /* =====================================================================
    STATS  (js/stats.js)
    What a design adds up to, worked out from the same rules and the same
-   air-force code the game uses: mass, fuel, thrust, delta-v, stability.
-   The builder shows these live. No planck needed.
+   air-force code the game uses: mass, fuel, thrust, delta-v, stability,
+   turning power. The builder shows these live. No planck needed.
    ===================================================================== */
 
 function polyCentroid(v) {           // centre of a polygon of {x, y} points
@@ -63,17 +63,20 @@ function stagePlan(rocket) {
 function designStats(design) {
   if (!design || !design.parts || design.parts.length === 0) return null;
   const rocket = assemble(design, { keepFrame: true });
-  let wet = 0, fuel = 0, thrustVac = 0, thrustSl = 0, mdot = 0, engines = 0, tanks = 0;
+  let wet = 0, fuel = 0, thrustVac = 0, thrustSl = 0, mdot = 0, engines = 0, tanks = 0, wheelTorque = 0;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   const items = rocket.parts.map(function (def) {
     const verts = def.verts.map(function (v) { return { x: v[0], y: v[1] }; });
     const c = polyCentroid(verts);
-    const part = { def: def, verts: verts, cy: def.at[1] + c[1], forces: (def.forces || []).map(function (f) { return Object.assign({}, f); }) };
+    let px0 = Infinity, px1 = -Infinity, py0 = Infinity, py1 = -Infinity;
+    for (const v of verts) { px0 = Math.min(px0, v.x); px1 = Math.max(px1, v.x); py0 = Math.min(py0, v.y); py1 = Math.max(py1, v.y); }
+    const part = { def: def, verts: verts, cx: def.at[0] + c[0], cy: def.at[1] + c[1], w: px1 - px0, h: py1 - py0, forces: (def.forces || []).map(function (f) { return Object.assign({}, f); }) };
     let weight = 0;                                          // how much this part pushes sideways (see stabilityCal in aero.js)
     for (const f of part.forces) {
       prepareAero(part, f);
       if (f.kind === "fin") weight += f.liftA; else if (f.kind === "drag") weight += f.sideA;
       if (f.kind === "thrust") { thrustVac += f.vac; thrustSl += f.sl; mdot += f.mdot; if (def.kind === "engine") engines++; }
+      if (f.kind === "wheel") wheelTorque += f.torque;
     }
     part.weight = weight;
     wet += def.mass;
@@ -85,10 +88,19 @@ function designStats(design) {
   let cp = null, w = 0, ws = 0;
   for (const p of items) { w += p.weight; ws += p.weight * p.cy; }
   if (w > 0) cp = ws / w;
+  function mass(p, frac) { return p.def.fuel ? p.def.fuel.dry + frac * p.def.fuel.full : p.def.mass; }
   function cg(frac) {                                        // centre of gravity (height) with the tanks this full
     let m = 0, ms = 0;
-    for (const p of items) { const pm = p.def.fuel ? p.def.fuel.dry + frac * p.def.fuel.full : p.def.mass; m += pm; ms += pm * p.cy; }
+    for (const p of items) { const pm = mass(p, frac); m += pm; ms += pm * p.cy; }
     return ms / m;
+  }
+  function turn(frac) {                                      // how fast the wheels can speed up its turn, deg/s2 (an estimate: every part is a box)
+    if (wheelTorque <= 0) return 0;
+    let m = 0, mx = 0, my = 0, I = 0;
+    for (const p of items) { const pm = mass(p, frac); m += pm; mx += pm * p.cx; my += pm * p.cy; }
+    const gx = mx / m, gy = my / m;
+    for (const p of items) I += mass(p, frac) * ((p.cx - gx) * (p.cx - gx) + (p.cy - gy) * (p.cy - gy) + (p.w * p.w + p.h * p.h) / 12);
+    return I > 0 ? wheelTorque / I * 180 / Math.PI : 0;
   }
   const hull = rocket.hull, cgFull = cg(1), cgDry = cg(0), plan = stagePlan(rocket);
   return {
@@ -99,6 +111,7 @@ function designStats(design) {
     dvVac: plan.reduce(function (s, r) { return s + r.dv; }, 0), stages: plan,
     burn: plan.reduce(function (s, r) { return s + r.burn; }, 0),
     height: y1 - y0, width: x1 - x0,
+    wheelTorque: wheelTorque, turnFull: turn(1), turnDry: turn(0),
     cgFull: cgFull, cgDry: cgDry, cp: cp, axisX: hull ? hull.at[0] : 0,
     calFull: hull && cp !== null ? (cgFull - cp) / hull.width : null,
     calDry: hull && cp !== null ? (cgDry - cp) / hull.width : null

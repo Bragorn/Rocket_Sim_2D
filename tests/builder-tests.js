@@ -54,12 +54,19 @@ check(st.engines === 1 && near(st.thrustVac, 250000) && near(st.thrustSl, 250000
 check(st.twrSl > 1.5 && st.twrSl < 1.8, `thrust-to-weight ${st.twrSl.toFixed(2)}`);
 check(st.dvVac > 6000 && st.dvVac < 7500, `delta-v ${st.dvVac.toFixed(0)} m/s (the game's bar uses the same formula)`);
 check(near(st.burn, 12566.37 / (250000 / (310 * 9.81)), 0.01), `burn time ${st.burn.toFixed(0)} s`);
-check(near(st.calFull, 0.71, 0.03) && near(st.calDry, 0.32, 0.03), `stability ${st.calFull.toFixed(2)} cal full, ${st.calDry.toFixed(2)} empty: matches the flight test`);
+check(near(st.calFull, 0.73, 0.03) && near(st.calDry, 0.51, 0.03), `stability ${st.calFull.toFixed(2)} cal full, ${st.calDry.toFixed(2)} empty: matches the flight test (the nose cone's built-in wheel adds weight up front)`);
 check(near(st.height, 6.9, 0.2) && near(st.width, 5.1, 0.2), `size ${st.width.toFixed(1)} x ${st.height.toFixed(1)} m`);
 const two = run("designStats")(partial(tank("t", 4, 4), tank("u", 2, 2, { parent: "t", anchor: "top" }), eng("e", "t", -1), eng("f", "t", 1)));
 check(two.engines === 2 && two.tanks === 2 && near(two.thrustVac, 500000), "two tanks and two engines are counted");
 check(run("designStats")(partial(tank("t", 2, 4))).dvVac === 0 && run("designStats")(partial(tank("t", 2, 4))).twrSl === 0, "no engine: no delta-v, no thrust-to-weight");
 check(run("designStats")({ version: 1, parts: [] }) === null, "an empty design has no stats");
+const w2 = run("wheelSpec")(2).torque;
+check(near(st.wheelTorque, w2, 1e-6) && st.turnFull > 20 && st.turnDry > st.turnFull, `the starting rocket turns at ${st.turnFull.toFixed(0)} deg/s2 full and ${st.turnDry.toFixed(0)} empty (its nose cone's wheel, ${(w2 / 1000).toFixed(0)} kN*m)`);
+check(two.wheelTorque === 0 && two.turnFull === 0 && two.turnDry === 0, "no nose cone and no wheel: no turning push, and the builder says so");
+const ringed = run("designStats")(partial(tank("t", 2, 4), eng("e", "t"), { id: "w", type: "wheel", width: 2, parent: "t", anchor: "top" }));
+check(near(ringed.wheelTorque, w2, 1e-6) && ringed.turnFull > 0, "a wheel ring on a rocket with no nose gives it turning push");
+const heavy = run("designStats")(partial(tank("t", 4, 8), eng("a", "t", -1, 1500000), eng("b", "t", 1, 1500000), { id: "n", type: "nose", width: 4, length: 2, parent: "t", anchor: "top" }));
+check(heavy.turnFull < st.turnFull, `a big rocket turns slower with just its nose wheel (${heavy.turnFull.toFixed(1)} deg/s2 against ${st.turnFull.toFixed(0)}), so it wants extra wheels`);
 
 /* ---- 2. editing ---- */
 console.log("\n2. Editing and snapping");
@@ -79,6 +86,8 @@ let r = best(baseT, { type: "engine", thrust: 250000 }, 0.1, -0.5);
 check(r.valid && r.att.parent === "tank" && r.att.anchor === "bottom", "an engine near the bottom of the tank snaps to its bottom");
 r = best(baseT, { type: "nose", width: 2, length: 1.5 }, 0.1, 4.8);
 check(r.valid && r.att.anchor === "top", "a nose near the top snaps to its top");
+r = best(baseT, { type: "wheel", width: 2 }, 0.1, 4.2);
+check(r.valid && r.att.anchor === "top", "a reaction wheel ring near the top of a tank snaps on top of it");
 r = best(baseT, { type: "engine", thrust: 250000 }, 0, 4.9);
 check(r.snapped && !r.valid && r.problems.length > 0, `an engine near the top is shown as not allowed ("${r.problems[0]}")`);
 r = best(baseT, { type: "fin" }, 1.2, 1.5);
@@ -120,6 +129,13 @@ const frames = (n) => { for (let i = 0; i < n; i++) raf(i * 16); };
 frames(3);
 check(run("design.parts.length") === 5 && run("ui.launch.disabled") === false, "the builder opens on the starting rocket, ready to launch");
 check(run("ui.rows.twr.textContent") !== "-" && run("ui.problems.children[0].textContent") === "Ready to launch", "the numbers panel is filled in");
+check(/kN\*m/.test(run("ui.rows.wheel.textContent")) && /deg\/s2/.test(run("ui.rows.turn.textContent")) && /deg\/s2/.test(run("ui.rows.turn0.textContent")), `the panel shows the reaction wheels and how fast the rocket turns (${run("ui.rows.wheel.textContent")}, ${run("ui.rows.turn.textContent")})`);
+run("pal.tab = 'stage'; renderCards()");
+const cardTitles = run("ui.cards.children").filter(c => c.className === "card").map(c => c.children[1].children[0].textContent);
+check(cardTitles.length === 2 && /Decoupler/.test(cardTitles[0]) && /Reaction wheel/.test(cardTitles[1]), "the Rings tab offers the decoupler and the reaction wheel");
+run("pal.tab = 'noses'; renderCards()");
+check(/built-in wheel/.test(run("ui.cards.children").filter(c => c.className === "card")[0].children[1].children.map(c => c.textContent).join(" ")), "the nose cone card says it has a wheel built in");
+run("pal.tab = 'tanks'; renderCards()");
 
 function dropNew(spec, wx, wy) {     // grab a card, carry it over the grid to (wx, wy) meters, let go
   run(`beginNewDrag(${JSON.stringify(spec)})`);
@@ -175,8 +191,12 @@ check(run("ui.launch.disabled") === true && run("ui.problems.children.length") >
 run("setDesign({ version: 1, name: 'New', parts: [] })"); frames(1);
 g = dropNew({ type: "tank", width: 2, length: 4 }, 0, 0);
 check(run("design.parts.length") === 1 && run("design.parts[0].type") === "tank", "a part dropped on an empty grid becomes the first part");
+// a wheel ring dropped onto the top of the tank
+const newTank = geo().find(d => d.kind === "tank");
+g = dropNew({ type: "wheel", width: 2 }, 0, newTank.at[1] + 2.1);
+check(g && g.valid && run("design.parts").some(p => p.type === "wheel" && p.anchor === "top"), "a reaction wheel ring dropped on top of a tank joins it");
 // the draft is kept for the next visit
-check(stored["rocketsim.draft"] && JSON.parse(stored["rocketsim.draft"]).parts.length === 1, "the design is kept as a draft in the browser");
+check(stored["rocketsim.draft"] && JSON.parse(stored["rocketsim.draft"]).parts.length === 2, "the design is kept as a draft in the browser");
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);

@@ -9,7 +9,8 @@
    2. Designs: what may join under an engine, the staging list.
    3. Moving things in the staging list (restage), and the numbers per stage.
    4. In the game: engines stay cold until their stage fires, fuel stays in
-      its own stage, a decoupler lets go and pushes, the rocket you fly switches.
+      its own stage, a decoupler lets go and pushes, the rocket you fly switches,
+      and a reaction wheel dropped with a stage takes its turning push with it.
    ===================================================================== */
 const vm = require("vm"), fs = require("fs"), path = require("path");
 const root = path.join(__dirname, "..");
@@ -78,6 +79,17 @@ const LOWHULL = { version: 1, name: "low", parts: [
   { id: "nose", type: "nose", width: 2, length: 1.5, parent: "tankB", anchor: "top", dx: 0 }
 ], stages: [["engA"], ["dec"]] };
 
+/* like TWO, but the lower stage has a reaction wheel ring of its own, hung under the decoupler */
+const WHEELED = { version: 1, name: "wheeled", parts: [
+  { id: "tank2", type: "tank", width: 2, length: 2 },
+  { id: "eng2", type: "engine", thrust: 100000, parent: "tank2", anchor: "bottom", dx: 0 },
+  { id: "dec", type: "decoupler", width: 2, parent: "eng2", anchor: "bottom", dx: 0 },
+  { id: "ring", type: "wheel", width: 2, parent: "dec", anchor: "bottom", dx: 0 },
+  { id: "tank1", type: "tank", width: 2, length: 4, parent: "ring", anchor: "bottom", dx: 0 },
+  { id: "eng1", type: "engine", thrust: 250000, parent: "tank1", anchor: "bottom", dx: 0 },
+  { id: "nose", type: "nose", width: 2, length: 1.5, parent: "tank2", anchor: "top", dx: 0 }
+], stages: [["eng1"], ["dec", "eng2"]] };
+
 /* ---- 1. the part ---- */
 console.log("\n1. The decoupler part");
 const dec = run("decoupler")(2);
@@ -92,6 +104,7 @@ console.log("\n2. Designs and the staging list");
 check(bad(run("DESIGN")).length === 0, "the starting rocket is still valid, with its staging list");
 check(bad(TWO).length === 0, "the two-stage rocket is valid" + (bad(TWO).length ? ": " + bad(TWO).join("; ") : ""));
 check(bad(LOWHULL).length === 0, "so is the one with the decoupler on top of the lower tank" + (bad(LOWHULL).length ? ": " + bad(LOWHULL).join("; ") : ""));
+check(bad(WHEELED).length === 0, "and the one with a reaction wheel ring under the decoupler" + (bad(WHEELED).length ? ": " + bad(WHEELED).join("; ") : ""));
 const tankUnder = clone(TWO); tankUnder.parts[2] = { id: "tx", type: "tank", width: 2, length: 2, parent: "eng2", anchor: "bottom", dx: 0 }; tankUnder.parts.splice(3, 2); tankUnder.stages = [["eng2"]];
 check(bad(tankUnder).some(m => /only a decoupler/.test(m)), "a tank straight under an engine: refused (only a decoupler can go there)");
 const narrow = { version: 1, name: "n", parts: [
@@ -174,6 +187,15 @@ check(near(s.hullWidth, 2, 1e-9), "and its width is used for the stability readi
 load(run("DESIGN"));
 s = run("sim");
 check(run("fireStage")() === true && part("engine").active === true && run("fireStage")() === false, "the starting rocket has one stage: Space activates its engine, a second press does nothing");
+
+/* a wheel ring in the lower stage goes with it */
+load(WHEELED);
+s = run("sim");
+const w2 = run("wheelSpec")(2).torque;
+check(near(s.wheelMax, 2 * w2, 1e-6), `before the split the rocket has the nose cone's wheel and the ring: ${(s.wheelMax / 1000).toFixed(0)} kN*m`);
+run("fireStage")(); run("fireStage")();
+check(ids(s.parts.filter(p => p.debris)) === "dec,eng1,ring,tank1", "the ring was dropped with the lower stage");
+check(near(s.wheelMax, w2, 1e-6), `after the split only the nose cone's wheel is left to turn the upper stage: ${(s.wheelMax / 1000).toFixed(0)} kN*m`);
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);

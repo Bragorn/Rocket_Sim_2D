@@ -22,7 +22,7 @@ let mirror = true;                   // fins and legs go in pairs
 let view = { cx: 0, cy: 3, scale: 28 };   // the middle of the screen in meters, and pixels per meter
 let W = 100, H = 100;
 const mouse = { px: 0, py: 0, inside: false };
-const pal = { tab: "tanks", tankW: 2, tankL: 4, noseW: 2, noseL: 1.5, legDrop: 2, decW: 2 };
+const pal = { tab: "tanks", tankW: 2, tankL: 4, noseW: 2, noseL: 1.5, legDrop: 2, decW: 2, wheelW: 2 };
 const ui = { rows: {} };
 const stageUi = { targets: [], chips: {}, shown: undefined };   // the staging bar: drop targets, the chips by part id, which part is shown selected
 let stageDrag = null;                // a chip being dragged: { id, x, y, moved, hot }
@@ -32,6 +32,7 @@ function withStages(d) { return Object.assign({}, d, { stages: stagesOf(d) }); }
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 const fmtKg = (kg) => kg >= 1000 ? (kg / 1000).toFixed(1) + " t" : Math.round(kg) + " kg";
 const fmtCal = (c) => c === null ? "-" : c.toFixed(2) + " cal";
+const fmtKNm = (nm) => (nm / 1000).toFixed(1) + " kN*m";
 
 /* ---- view ---- */
 function toScreen(x, y) { return [W / 2 + (x - view.cx) * view.scale, H / 2 - (y - view.cy) * view.scale]; }
@@ -84,7 +85,8 @@ function removeSelected() {
 
 /* ---- the numbers panel ---- */
 const STAT_ROWS = [["parts", "Parts"], ["size", "Size"], ["mass", "Mass (full)"], ["dry", "Dry mass"], ["fuel", "Fuel"], ["engines", "Engines"],
-                   ["twr", "Thrust / weight"], ["dv", "Delta-v (vac)"], ["burn", "Burn time"], ["stab", "Stability (full)"], ["stab0", "Stability (empty)"]];
+                   ["twr", "Thrust / weight"], ["dv", "Delta-v (vac)"], ["burn", "Burn time"], ["stab", "Stability (full)"], ["stab0", "Stability (empty)"],
+                   ["wheel", "Reaction wheels"], ["turn", "Turning (full)"], ["turn0", "Turning (empty)"]];
 
 function buildRight() {
   rightEl.appendChild(el("div", "sec", "Rocket"));
@@ -144,6 +146,10 @@ function refresh() {
     setText("burn", st.burn ? Math.round(st.burn) + " s" : "-");
     const tone = (c) => c === null ? "" : c < 0 ? "bad" : c < 0.5 ? "warn" : "good";
     setText("stab", fmtCal(st.calFull), tone(st.calFull)); setText("stab0", fmtCal(st.calDry), tone(st.calDry));
+    const turnTone = (t) => t < 8 ? "bad" : t < 25 ? "warn" : "good";     // only the colour: below 8 deg/s2 a turn takes ages, above 25 it is lively
+    setText("wheel", st.wheelTorque ? fmtKNm(st.wheelTorque) : "none", st.wheelTorque ? "" : "bad");
+    setText("turn", st.wheelTorque ? Math.round(st.turnFull) + " deg/s2" : "-", st.wheelTorque ? turnTone(st.turnFull) : "");
+    setText("turn0", st.wheelTorque ? Math.round(st.turnDry) + " deg/s2" : "-", st.wheelTorque ? turnTone(st.turnDry) : "");
   }
   ui.problems.textContent = "";
   if (bad.length === 0) { const d = el("div", "good", "Ready to launch"); ui.problems.appendChild(d); }
@@ -252,7 +258,7 @@ function importFile() {
 }
 
 /* ---- the palette ---- */
-const TABS = [["tanks", "Tanks"], ["engines", "Engines"], ["noses", "Noses"], ["side", "Fins/Legs"], ["stage", "Decoupler"]];
+const TABS = [["tanks", "Tanks"], ["engines", "Engines"], ["noses", "Noses"], ["side", "Fins/Legs"], ["stage", "Rings"]];
 
 function thumb(def) {                // a small picture of a part
   const c = el("canvas"); c.width = 84; c.height = 84;
@@ -310,10 +316,13 @@ function wrap(...rows) { const d = el("div"); for (const r of rows) d.appendChil
 
 function renderStageCards() {
   ui.cards.textContent = "";
-  const sp = decouplerSpec(pal.decW);
+  const sp = decouplerSpec(pal.decW), wl = wheelSpec(pal.wheelW);
   ui.cards.appendChild(el("div", "hint", "A decoupler joins two body parts and lets go when its stage fires. To add a stage below, drop it under the engine (it has to be at least as wide as the engine), then build the next stage under it."));
   ui.cards.appendChild(card({ type: "decoupler", width: pal.decW }, "Decoupler " + pal.decW + " m", ["mass " + fmtKg(sp.mass), "separation push " + (sp.kick / 1000).toFixed(1) + " kN*s"],
     wrap(choice("Width", RULES.tankWidths, () => pal.decW, (v) => { pal.decW = v; }, (v) => v + " m"))));
+  ui.cards.appendChild(el("div", "hint", "A reaction wheel is a ring that stays in the rocket and turns it. Every nose cone has one built in; add a ring for more turning push on a heavy rocket, or if it has no nose."));
+  ui.cards.appendChild(card({ type: "wheel", width: pal.wheelW }, "Reaction wheel " + pal.wheelW + " m", ["mass " + fmtKg(wl.mass), "turning push " + fmtKNm(wl.torque)],
+    wrap(choice("Width", RULES.tankWidths, () => pal.wheelW, (v) => { pal.wheelW = v; }, (v) => v + " m"))));
 }
 
 function renderCards() {
@@ -335,9 +344,9 @@ function renderCards() {
         ["width " + d.width.toFixed(2) + " m, mass " + fmtKg(sp.mass), "thrust " + Math.round(sp.sl / 1000) + " kN at ground", "efficiency " + RULES.ispSl + " s ground, " + RULES.ispVac + " s vacuum"]));
     });
   } else if (pal.tab === "noses") {
-    const sp = noseSpec(pal.noseW, pal.noseL);
-    ui.cards.appendChild(el("div", "hint", "A nose cone joins the top of a body part."));
-    ui.cards.appendChild(card({ type: "nose", width: pal.noseW, length: pal.noseL }, "Nose cone " + pal.noseW + " m x " + pal.noseL + " m", ["mass " + fmtKg(sp.mass)],
+    const nd = nose(pal.noseW, pal.noseL), wl = wheelSpec(pal.noseW);
+    ui.cards.appendChild(el("div", "hint", "A nose cone joins the top of a body part. It has a reaction wheel built in, so the rocket can turn."));
+    ui.cards.appendChild(card({ type: "nose", width: pal.noseW, length: pal.noseL }, "Nose cone " + pal.noseW + " m x " + pal.noseL + " m", ["mass " + fmtKg(nd.mass) + " (" + fmtKg(wl.mass) + " of it the wheel)", "built-in wheel " + fmtKNm(wl.torque)],
       wrap(choice("Width", RULES.tankWidths, () => pal.noseW, (v) => { pal.noseW = v; }, (v) => v + " m"),
            stepper("Length", () => pal.noseL, (v) => { pal.noseL = v; }, RULES.gridM, RULES.noseMaxLength, RULES.gridM, (v) => v.toFixed(1) + " m"))));
   } else {

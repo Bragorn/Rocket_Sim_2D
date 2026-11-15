@@ -104,10 +104,11 @@ function stepSim() {
   applyPartForces(DT);
   applyAero();
 
-  // reaction wheel, with optional damping of any spin
-  let tq = controls.steer * WHEEL_MAX;
-  if (controls.damping) tq -= DAMP_K * sim.hull.body.getAngularVelocity();
-  sim.hull.body.applyTorque(clamp(tq, -WHEEL_MAX, WHEEL_MAX), true);
+  // the reaction wheels (the turning push is whatever the rocket's wheels add up to), with optional damping of any spin
+  const wheelMax = sim.wheelMax;
+  let tq = controls.steer * wheelMax;
+  if (controls.damping) tq -= DAMP_PER_TORQUE * wheelMax * sim.hull.body.getAngularVelocity();
+  sim.hull.body.applyTorque(clamp(tq, -wheelMax, wheelMax), true);
 
   w.step(DT, VEL_IT, POS_IT);
   if (sim.thrust > 0) sim.started = true;                     // the flight clock starts at ignition
