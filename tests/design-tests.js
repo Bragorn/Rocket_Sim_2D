@@ -8,36 +8,7 @@
 const vm = require("vm"), fs = require("fs"), path = require("path");
 const root = path.join(__dirname, "..");
 
-/* ---- a stand-in for planck: bodies that stay where they are ---- */
-function Vec2(x, y) { this.x = x; this.y = y; }
-function Polygon(verts) { this.verts = verts; }
-function Circle(r) { this.r = r; }
-function area(v) { let a = 0; for (let i = 0; i < v.length; i++) { const p = v[i], q = v[(i + 1) % v.length]; a += p.x * q.y - q.x * p.y; } return Math.abs(a) / 2; }
-class Fixture { constructor(def) { this.shape = def.shape; this.density = def.density || 0; } setDensity(d) { this.density = d; } }
-class Body {
-  constructor(def) { this.type = def.type; this.pos = def.position; this.fix = null; this.next = null; this.forceSum = 0; this.torque = 0; }
-  createFixture(def) { this.fix = new Fixture(def); return this.fix; }
-  getFixtureList() { return this.fix; }
-  getMass() { return this.type === "dynamic" && this.fix ? this.fix.density * area(this.fix.shape.verts) : 0; }
-  resetMassData() {}
-  isDynamic() { return this.type === "dynamic"; }
-  getNext() { return this.next; }
-  getPosition() { return this.pos; }
-  getAngle() { return 0; }
-  getWorldCenter() { return this.pos; }
-  getWorldPoint(l) { return new Vec2(this.pos.x + l.x, this.pos.y + l.y); }
-  getLinearVelocity() { return new Vec2(0, 0); }
-  getLinearVelocityFromWorldPoint() { return new Vec2(0, 0); }
-  getAngularVelocity() { return 0; }
-  applyForce(f) { this.forceSum += Math.hypot(f.x, f.y); }
-  applyForceToCenter() {}
-  applyTorque(t) { this.torque += t; }
-}
-class World { constructor() { this.first = null; this.last = null; }
-  createBody(def) { const b = new Body(def); if (this.last) this.last.next = b; else this.first = b; this.last = b; return b; }
-  getBodyList() { return this.first; }
-  createJoint(j) { return j; } on() {} step() {} }
-const planck = { Settings: {}, Vec2, Polygon, Circle, World, WeldJoint: function () { this.getReactionForce = () => new Vec2(0, 0); } };
+const planck = require("./fake-planck");   // the shared stand-in for the physics engine
 const ctx = { console, Math, Object, Array, Number, JSON, encodeURIComponent, decodeURIComponent, document: { body: {} }, window: { addEventListener() {} }, planck };
 vm.createContext(ctx);
 for (const f of ["util", "settings", "rules", "parts", "design", "controls", "aero", "telemetry", "world", "sim", "orbit"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
@@ -153,10 +124,11 @@ load(DESIGN);
 let s = run("sim");
 check(s.tanks.length === 1 && near(s.fuelFull, 12566.37, 0.01) && s.fuel === s.fuelFull, "one tank: the pool holds its 12.57 t of fuel");
 check(near(s.refOffset, by("tank").at[1] + 0.02, 1e-9), "the pad altitude reference is the hull's height on the pad");
-const m0 = s.hull.body.getMass(); burn(10, 1);
+const mass = (p) => run("partMass")(p);
+const m0 = mass(s.hull); burn(10, 1);
 const mdot = 250000 / (310 * G0);
 check(near(s.fuel, s.fuelFull - mdot * 10, 2), `10 s at full throttle burns ${(mdot * 10).toFixed(0)} kg (the pool: ${s.fuel.toFixed(0)} kg left)`);
-check(near(s.hull.body.getMass(), m0 - mdot * 10, 2), "the tank weighs less as it empties");
+check(near(mass(s.hull), m0 - mdot * 10, 2) && near(s.hull.body.getMass(), run("totalMass")(), 1e-6), "the tank weighs less as it empties, and the one body weighs what the parts weigh together");
 check(near(s.thrust, 250000 * 280 / 310 - 0, 3000) && s.thrust > 0, `thrust at the ground is about ${(s.thrust / 1000).toFixed(0)} kN (sea level)`);
 
 const two = withParts(tank("t", 4, 4), tank("u", 2, 2, { parent: "t", anchor: "top" }), eng("e", "t", -1, 250000), eng("f", "t", 1, 250000),
@@ -167,9 +139,9 @@ load(two); s = run("sim");
 const full = run("tankSpec")(4, 4).fuel + run("tankSpec")(2, 2).fuel;
 check(s.tanks.length === 2 && near(s.fuelFull, full, 0.01), `two tanks share one pool (${(full / 1000).toFixed(1)} t)`);
 check(s.hull.def.id === "t", "the hull is the first tank");
-const mt = s.tanks.map(t => t.part.body.getMass()); burn(20, 1);
+burn(20, 1);
 const fracLeft = s.fuel / s.fuelFull;
-const mt2 = s.tanks.map(t => t.part.body.getMass());
+const mt2 = s.tanks.map(t => mass(t.part));
 check(near(mt2[0], s.tanks[0].dry + fracLeft * s.tanks[0].full, 1) && near(mt2[1], s.tanks[1].dry + fracLeft * s.tanks[1].full, 1), `both tanks drain evenly (${(fracLeft * 100).toFixed(1)}% left in each)`);
 check(near(s.fuelFull - s.fuel, 2 * mdot * 20, 3), "two engines burn twice the fuel");
 check(near(run("maxThrust")(), 2 * 250000 * (1 - (1 - 280 / 310) * s.rho / 1.225), 5), "the bar's thrust adds up both engines");
@@ -181,7 +153,16 @@ check(flameA > 0, "both engines produce thrust together");
 /* run out of fuel */
 load(DESIGN); s = run("sim"); burn(200, 1);
 check(s.fuel === 0 && s.thrust === 0 && s.emptyLogged, "an empty tank shuts the engine off");
-check(near(s.hull.body.getMass(), s.tanks[0].dry, 1), "and the empty tank weighs only its dry mass");
+check(near(mass(s.hull), s.tanks[0].dry, 1), "and the empty tank weighs only its dry mass");
+
+/* ---- one rigid body ---- */
+console.log("\n4b. The rocket is one body");
+load(DESIGN); s = run("sim");
+check(s.world.dynamicCount() === 1 && s.parts.every(p => p.body === s.hull.body), "every part of the starting rocket is on one physics body: nothing between its parts can flex");
+check(s.parts.every(p => p.body.fixtures.indexOf(p.fixture) >= 0) && s.hull.body.fixtures.length === s.parts.length, "each part owns one shape on it");
+check(near(s.hull.ox, 0) && near(s.hull.oy, 0) && near(s.hull.body.getPosition().y, run("R") + run("PAD_GAP") + by("tank").at[1], 1e-9), "the body's frame starts at the hull's centre, so the readouts that follow the hull still read the same");
+check(near(s.hull.body.getMass(), s.parts.reduce((m, p) => m + run("partMass")(p), 0), 1e-6), "the body weighs what all its parts weigh");
+check(s.parts.find(p => p.def.id === "nose").oy > s.hull.oy && s.parts.find(p => p.def.id === "engine").oy < s.hull.oy, "each part knows where it sits on the body (the nose above the hull, the engine below)");
 
 /* ---- 5. reaction wheels in flight (stand-in physics: the torque each step is recorded) ---- */
 console.log("\n5. Reaction wheels in flight");

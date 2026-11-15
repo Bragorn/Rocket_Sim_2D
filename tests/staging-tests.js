@@ -15,38 +15,7 @@
 const vm = require("vm"), fs = require("fs"), path = require("path");
 const root = path.join(__dirname, "..");
 
-function Vec2(x, y) { this.x = x; this.y = y; }
-function Polygon(verts) { this.verts = verts; }
-function Circle(r) { this.r = r; }
-function area(v) { let a = 0; for (let i = 0; i < v.length; i++) { const p = v[i], q = v[(i + 1) % v.length]; a += p.x * q.y - q.x * p.y; } return Math.abs(a) / 2; }
-class Fixture { constructor(def) { this.shape = def.shape; this.density = def.density || 0; } setDensity(d) { this.density = d; } }
-class Body {
-  constructor(def) { this.type = def.type; this.pos = def.position; this.fix = null; this.next = null; this.vel = new Vec2(0, 0); }
-  createFixture(def) { this.fix = new Fixture(def); return this.fix; }
-  getFixtureList() { return this.fix; }
-  getMass() { return this.type === "dynamic" && this.fix ? this.fix.density * area(this.fix.shape.verts) : 0; }
-  resetMassData() {}
-  isDynamic() { return this.type === "dynamic"; }
-  getNext() { return this.next; }
-  getPosition() { return this.pos; }
-  getAngle() { return 0; }
-  getWorldCenter() { return this.pos; }
-  getWorldPoint(l) { return new Vec2(this.pos.x + l.x, this.pos.y + l.y); }
-  getLinearVelocity() { return this.vel; }
-  getLinearVelocityFromWorldPoint() { return this.vel; }
-  getAngularVelocity() { return 0; }
-  applyForce() {} applyForceToCenter() {} applyTorque() {}
-  applyLinearImpulse(J) { const m = this.getMass(); this.vel = new Vec2(this.vel.x + J.x / m, this.vel.y + J.y / m); }
-}
-class World {
-  constructor() { this.first = null; this.last = null; this.destroyed = 0; }
-  createBody(def) { const b = new Body(def); if (this.last) this.last.next = b; else this.first = b; this.last = b; return b; }
-  getBodyList() { return this.first; }
-  createJoint(j) { return j; }
-  destroyJoint() { this.destroyed++; }
-  on() {} step() {}
-}
-const planck = { Settings: {}, Vec2, Polygon, Circle, World, WeldJoint: function () { this.getReactionForce = () => new Vec2(0, 0); } };
+const planck = require("./fake-planck");   // the shared stand-in for the physics engine
 const ctx = { console, Math, Object, Array, Number, JSON, encodeURIComponent, decodeURIComponent, document: { body: {} }, window: { addEventListener() {} }, planck };
 vm.createContext(ctx);
 for (const f of ["util", "settings", "rules", "parts", "design", "controls", "aero", "telemetry", "world", "sim", "orbit", "stats", "edit"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
@@ -163,14 +132,15 @@ check(tk("tank1").fuel === 0 && s.thrust === 0 && logs.some(m => /out of fuel/.t
 check(tk("tank2").fuel === tk("tank2").full, "while the upper tank is still full");
 const jointsBefore = s.joints.length;
 check(run("fireStage")() === true, "Space fires stage 2");
-check(s.world.destroyed === 1 && s.joints.length === jointsBefore - 1, "one weld was let go");
+check(s.world.dynamicCount() === 2 && s.joints.length === jointsBefore - 1, "the rocket split into two bodies and one link was let go");
 const ids = (list) => list.map(p => p.def.id).sort().join();
 check(ids(s.vessel) === "eng2,nose,tank2" && ids(s.parts.filter(p => p.debris)) === "dec,eng1,tank1", "the rocket you fly is the upper stage; the lower stage and the ring are dropped pieces");
 check(s.hull.def.id === "tank2", "steering and the camera stay on the upper tank");
-const up = s.vessel, down = s.parts.filter(p => p.debris), M = (l) => l.reduce((m, p) => m + p.body.getMass(), 0);
+check(s.vessel.every(p => p.body === s.vessel[0].body) && s.parts.filter(p => p.debris).every(p => p.body === s.parts.find(q => q.debris).body) && s.vessel[0].body !== s.parts.find(p => p.debris).body, "each piece is on a body of its own now, and all of its parts are on it");
+const up = s.vessel, down = s.parts.filter(p => p.debris), M = (l) => l.reduce((m, p) => m + run("partMass")(p), 0);
 const vU = up[0].body.getLinearVelocity().y, vD = down[0].body.getLinearVelocity().y, J = run("decouplerSpec")(2).kick;
 check(vU > 0 && vD < 0 && near(vU - vD, J * (1 / M(up) + 1 / M(down)), 1e-6), `the charge pushes them apart at ${(vU - vD).toFixed(2)} m/s`);
-check(near(M(up) * vU + M(down) * vD, 0, 1e-6) && up.every(p => near(p.body.getLinearVelocity().y, vU, 1e-9)) && down.every(p => near(p.body.getLinearVelocity().y, vD, 1e-9)), "momentum is conserved and each piece moves as one (no part is jerked against its neighbours)");
+check(near(up[0].body.getMass(), M(up), 1e-6) && near(down[0].body.getMass(), M(down), 1e-6) && near(M(up) * vU + M(down) * vD, 0, 1e-6) && up.every(p => near(p.body.getLinearVelocity().y, vU, 1e-9)) && down.every(p => near(p.body.getLinearVelocity().y, vD, 1e-9)), "momentum is conserved and each piece moves as one (no part is jerked against its neighbours)");
 check(near(run("totalMass")(), M(up), 1e-6) && near(s.fuelFull, tk("tank2").full, 1e-6) && near(s.fuel, tk("tank2").fuel, 1e-6), "mass and fuel readouts are now the upper stage only");
 burn(2, 1);
 check(s.thrust > 0 && tk("tank2").fuel < tk("tank2").full, "the upper engine was activated in the same row and burns the upper tank");

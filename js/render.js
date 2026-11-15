@@ -93,7 +93,7 @@ function drawFlight(alt, phi) {
   for (const part of sim.parts) for (const f of part.forces) {   // a flame for every engine that is burning
     if (f.kind !== "thrust" || f.now <= 0) continue;
     const a = part.body.getAngle() + f.angle, dx = -Math.sin(a), dy = Math.cos(a);
-    const n = part.body.getWorldPoint(P(f.at[0], f.at[1])), L = (1.2 + 4 * f.now / f.vac) * f.scale * (0.85 + Math.random() * 0.3), wd = 0.28 * f.scale;   // bigger engines, bigger flames
+    const n = part.body.getWorldPoint(P(part.ox + f.at[0], part.oy + f.at[1])), L = (1.2 + 4 * f.now / f.vac) * f.scale * (0.85 + Math.random() * 0.3), wd = 0.28 * f.scale;   // bigger engines, bigger flames
     const a1 = T({ x: n.x + dy * wd, y: n.y - dx * wd }), a2 = T({ x: n.x - dy * wd, y: n.y + dx * wd });
     const tip = T({ x: n.x - dx * L, y: n.y - dy * L });
     c.fillStyle = "#f1c40f"; c.beginPath(); c.moveTo(a1[0], a1[1]); c.lineTo(tip[0], tip[1]); c.lineTo(a2[0], a2[1]); c.closePath(); c.fill();
@@ -105,10 +105,10 @@ function drawFlight(alt, phi) {
     c.beginPath(); c.arc(m[0], m[1], 5, 0, 6.2832); c.fill(); c.stroke();
     return;
   }
-  for (const part of sim.parts) {                            // the parts
+  for (const part of sim.parts) {                            // the parts (each shape is placed on its body: ox, oy is where the part sits there)
     c.fillStyle = part.color; c.beginPath();
     part.verts.forEach(function (q, i) {
-      const s = T(part.body.getWorldPoint(q));
+      const s = T(part.body.getWorldPoint(P(part.ox + q.x, part.oy + q.y)));
       if (i === 0) c.moveTo(s[0], s[1]); else c.lineTo(s[0], s[1]);
     });
     c.closePath(); c.fill();

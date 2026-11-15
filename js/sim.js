@@ -37,7 +37,7 @@ function applyPartForces(dt) {
       for (const t of z.tanks) t.fuel *= keep;
       z.fuel -= used;
     }
-    for (const t of z.tanks) { t.fixture.setDensity((t.dry + t.fuel) / t.area); t.part.body.resetMassData(); }
+    for (const t of z.tanks) { t.part.fixture.setDensity((t.dry + t.fuel) / t.area); t.part.body.resetMassData(); }
   }
 
   let want = 0, left = 0;
@@ -52,7 +52,7 @@ function applyPartForces(dt) {
     f.angle += clamp(target - f.angle, -f.gimbalRate * dt, f.gimbalRate * dt);
     if (f.now > 0) {                                  // a force at the nozzle, along the part's axis tilted by the gimbal
       const a = p.body.getAngle() + f.angle;
-      p.body.applyForce(P(-Math.sin(a) * f.now, Math.cos(a) * f.now), p.body.getWorldPoint(P(f.at[0], f.at[1])), true);
+      p.body.applyForce(P(-Math.sin(a) * f.now, Math.cos(a) * f.now), p.body.getWorldPoint(P(p.ox + f.at[0], p.oy + f.at[1])), true);   // f.at is relative to the part, ox, oy is where the part sits on its body
     }
   }
 }
@@ -61,27 +61,21 @@ function applyPartForces(dt) {
 function stageName(id) { const L = sim.labels && sim.labels[id]; return L ? L.label : id; }
 function stagesLeft() { return sim && sim.stages ? sim.stages.length - sim.stageNext : 0; }
 
-/* Let go of the weld between a decoupler and the part it hangs from, and push the two pieces apart with the decoupler's charge:
-   the same impulse on both, in opposite directions, shared out by mass so no part is jerked against its neighbours. */
+/* Let go of the link between a decoupler and the part it hangs from: the piece that was holding on moves to a body of its own
+   (updateVessels does that), and the decoupler's charge pushes the two pieces apart: the same impulse on both, in opposite directions. */
 function decouple(dp) {
   const jt = dp.joint;
   if (!jt) return false;
   const parent = jt.parent;
-  sim.world.destroyJoint(jt.j);
   sim.joints.splice(sim.joints.indexOf(jt), 1);
   dp.joint = null;
   updateVessels();
   const a = dp.body.getAngle(), ux = -Math.sin(a), uy = Math.cos(a);        // the rocket's own axis
-  const c1 = parent.body.getWorldCenter(), c2 = dp.body.getWorldCenter();
+  const c1 = partCenter(parent), c2 = partCenter(dp);
   const s = ((c2.x - c1.x) * ux + (c2.y - c1.y) * uy) >= 0 ? 1 : -1;        // +1: the decoupler is above the part it let go of
-  let mA = 0, mB = 0;
-  for (const p of sim.parts) { if (p.group === dp.group) mB += p.body.getMass(); else if (p.group === parent.group) mA += p.body.getMass(); }
-  const J = dp.def.kick;
-  for (const p of sim.parts) {
-    const m = p.body.getMass();
-    if (p.group === dp.group) p.body.applyLinearImpulse(P(s * ux * J * m / mB, s * uy * J * m / mB), p.body.getWorldCenter(), true);
-    else if (p.group === parent.group) p.body.applyLinearImpulse(P(-s * ux * J * m / mA, -s * uy * J * m / mA), p.body.getWorldCenter(), true);
-  }
+  const J = dp.def.kick, up = dp.body, down = parent.body;
+  up.applyLinearImpulse(P(s * ux * J, s * uy * J), up.getWorldCenter(), true);
+  down.applyLinearImpulse(P(-s * ux * J, -s * uy * J), down.getWorldCenter(), true);
   return true;
 }
 
@@ -115,12 +109,6 @@ function stepSim() {
   if (sim.started) sim.t += DT;
   updateFlightStats();
 
-  const inv = 1 / DT;                                 // joint loads are tracked for later (not shown right now)
-  for (const j of sim.joints) {
-    const f = j.j.getReactionForce(inv);
-    j.force = Math.hypot(f.x, f.y);
-    if (j.force > j.peak) j.peak = j.force;
-  }
   const p = sim.hull.body.getPosition();
   if (Math.hypot(p.x, p.y) - R > 5.5) { sim.airborne = true; sim.flown = true; }
   telemetryStep();

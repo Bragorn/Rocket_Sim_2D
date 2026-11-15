@@ -100,10 +100,10 @@ function model(withFins, tankDry) {
   const rot = (x, y) => [Math.cos(S.a) * x - Math.sin(S.a) * y, Math.sin(S.a) * x + Math.cos(S.a) * y];
   const wc = it => { const r = rot(it.C[0] - cg[0], it.C[1] - cg[1]); return { x: S.x + r[0], y: S.y + r[1] }; };
   const pl = items.map(it => {
-    const body = { getAngle: () => S.a, getMass: () => it.m, getWorldCenter: () => wc(it),
+    const body = { getAngle: () => S.a, getMass: () => it.m, getWorldCenter: () => wc(it), getWorldPoint: () => wc(it),
       getLinearVelocityFromWorldPoint: wp => ({ x: S.vx - S.w * (wp.y - S.y), y: S.vy + S.w * (wp.x - S.x) }),
       applyForce: (F, wp) => { S.Fx += F.x; S.Fy += F.y; S.T += (wp.x - S.x) * F.y - (wp.y - S.y) * F.x; } };
-    const p = { def: it.def, body, verts: it.verts, forces: (it.def.forces || []).map(f => Object.assign({ now: 0, angle: 0 }, f)) };
+    const p = { def: it.def, body, verts: it.verts, lx: 0, ly: 0, tank: it.def.fuel ? { dry: it.def.fuel.dry, fuel: tankDry ? 0 : it.def.fuel.full } : null, forces: (it.def.forces || []).map(f => Object.assign({ now: 0, angle: 0 }, f)) };
     p.forces.forEach(f => run("prepareAero")(p, f));
     return p;
   });

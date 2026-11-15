@@ -2,9 +2,15 @@
 
 /* =====================================================================
    WORLD  (js/world.js)
-   Turns the data in parts.js into a planck world: the planet, one body
-   per part, weld joints, and gravity. `sim` is everything about the
-   current flight; buildWorld() replaces it (that is what reset does).
+   Turns the data in parts.js into a planck world: the planet and the rocket.
+   The rocket is ONE body with one shape per part, so it is rigid: nothing can flex
+   or wobble between its parts. When a piece lets go (a decoupler fires), the
+   parts of that piece are moved onto a body of their own. A part is a record of
+   the shape it owns, and where that shape sits on its body (the body's frame is
+   the hull's own: ox, oy is where the part's origin is in it, lx, ly its centre).
+   The links between parts (sim.joints) are only data now: they say which parts hold
+   each other, so the game knows which pieces there are after a split.
+   `sim` is everything about the current flight; buildWorld() replaces it (that is what reset does).
    ===================================================================== */
 
 let sim = null;
@@ -17,32 +23,43 @@ function addGravity(world) {         // pull every dynamic body toward the plane
   }
 }
 
+function vertCentroid(v) {           // centre of a polygon of {x, y} points
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < v.length; i++) { const p = v[i], q = v[(i + 1) % v.length], c = p.x * q.y - q.x * p.y; a += c; cx += (p.x + q.x) * c; cy += (p.y + q.y) * c; }
+  a /= 2;
+  return [cx / (6 * a), cy / (6 * a)];
+}
+
 function buildWorld() {
   const world = new planck.World({ gravity: P(0, 0) });
   const ground = world.createBody({ type: "static", position: P(0, 0) });
   ground.createFixture({ shape: new planck.Circle(R), friction: 0.8 });
 
   const base = R + PAD_GAP;           // the rocket's lowest point sits this far above the ground
+  const hx = ROCKET.hull.at[0], hy = ROCKET.hull.at[1];
+  const body = world.createBody({ type: "dynamic", position: P(hx, base + hy) });   // the one body: its frame starts at the hull's centre
   const parts = [], byId = {}, joints = [], tanks = [];
 
-  for (const def of ROCKET.parts) {   // one body per part
-    const verts = def.verts.map(function (v) { return P(v[0], v[1]); });
-    const body = world.createBody({ type: "dynamic", position: P(def.at[0], base + def.at[1]) });
+  for (const def of ROCKET.parts) {   // one shape per part
+    const ox = def.at[0] - hx, oy = def.at[1] - hy;
+    const verts = def.verts.map(function (v) { return P(v[0], v[1]); });             // the shape round the part's own origin
+    const local = def.verts.map(function (v) { return P(ox + v[0], oy + v[1]); });   // and the same shape in the body's frame
     // filterGroupIndex -1: the parts of one rocket never collide with each other (only with the ground)
-    const fixture = body.createFixture({ shape: new planck.Polygon(verts), density: def.mass / polyArea(verts), friction: 0.8, restitution: 0, filterGroupIndex: -1 });
-    const part = { def: def, name: def.name, color: def.color, body: body, verts: verts, idx: parts.length, active: false, debris: false, group: 0, zone: null, joint: null,
+    const fixture = body.createFixture({ shape: new planck.Polygon(local), density: def.mass / polyArea(verts), friction: 0.8, restitution: 0, filterGroupIndex: -1 });
+    const c = vertCentroid(verts);
+    const part = { def: def, name: def.name, color: def.color, body: body, fixture: fixture, verts: verts, local: local, ox: ox, oy: oy, lx: ox + c[0], ly: oy + c[1],
+                   idx: parts.length, active: false, debris: false, group: 0, zone: null, joint: null, tank: null,
                    forces: (def.forces || []).map(function (f) { return Object.assign({ now: 0, angle: 0 }, f); }) };   // now = force this step, angle = gimbal
     for (const f of part.forces) prepareAero(part, f);
-    if (def.fuel) tanks.push({ part: part, fixture: fixture, area: polyArea(verts), dry: def.fuel.dry, full: def.fuel.full, fuel: def.fuel.full });
+    if (def.fuel) { const t = { part: part, area: polyArea(verts), dry: def.fuel.dry, full: def.fuel.full, fuel: def.fuel.full }; tanks.push(t); part.tank = t; }
     parts.push(part);
     byId[def.id] = part;
   }
 
-  for (const part of parts) {         // weld the parts together
+  for (const part of parts) {         // link the parts that hold each other (no joint in the engine: they share a body)
     const jd = part.def.joint;
     if (!jd) continue;
-    const j = world.createJoint(new planck.WeldJoint({ frequencyHz: 0, dampingRatio: 0 }, byId[jd.to].body, part.body, P(jd.at[0], base + jd.at[1])));
-    const entry = { name: part.name, j: j, force: 0, peak: 0, part: part, parent: byId[jd.to] };
+    const entry = { name: part.name, force: 0, peak: 0, part: part, parent: byId[jd.to] };
     joints.push(entry); part.joint = entry;
   }
 
@@ -66,27 +83,49 @@ function buildWorld() {
   teleReset();
 
   world.on("begin-contact", function (ct) {          // the first touch after being in the air gets reported
-    const A = ct.getFixtureA().getBody(), B = ct.getFixtureB().getBody();
-    if (A !== ground && B !== ground) return;
-    const hit = parts.find(function (q) { return q.body === (A === ground ? B : A); });
+    const fA = ct.getFixtureA(), fB = ct.getFixtureB();
+    if (fA.getBody() !== ground && fB.getBody() !== ground) return;
+    const touching = fA.getBody() === ground ? fB : fA;               // the shape that touched the ground
+    const hit = parts.find(function (q) { return q.fixture === touching; });
     if (hit && hit.debris) return;                   // a dropped stage landing is not the rocket landing
     if (!sim.airborne) return;
     sim.airborne = false;
-    const body = A === ground ? B : A, p = body.getPosition(), r = Math.hypot(p.x, p.y);
+    const body = touching.getBody(), p = body.getPosition(), r = Math.hypot(p.x, p.y);
     const ux = p.x / r, uy = p.y / r, v = body.getLinearVelocity();
     const vert = v.x * ux + v.y * uy, side = v.x * uy - v.y * ux;
     sim.touchdownSpeed = Math.abs(vert);
-    const who = (parts.find(function (q) { return q.body === body; }) || { name: "?" }).name;
-    log("T+" + sim.t.toFixed(1) + " s: touchdown, " + who + " first, " + Math.abs(vert).toFixed(1) + " m/s down, " + Math.abs(side).toFixed(1) + " m/s sideways");
+    log("T+" + sim.t.toFixed(1) + " s: touchdown, " + (hit ? hit.name : "?") + " first, " + Math.abs(vert).toFixed(1) + " m/s down, " + Math.abs(side).toFixed(1) + " m/s sideways");
   });
   log("new rocket on the pad. Press Space to fire stage 1, then W to raise the throttle.");
+}
+
+/* Move some parts (a piece that has just let go) onto a new body. The new body sits exactly where the old one is, so every shape
+   keeps its place; it starts with the speed and spin the piece already had, at its own centre of mass. */
+function moveToNewBody(list, old) {
+  const nb = sim.world.createBody({ type: "dynamic", position: old.getPosition(), angle: old.getAngle() });
+  const fresh = list.map(function (q) {
+    return nb.createFixture({ shape: new planck.Polygon(q.local), density: q.fixture.getDensity(), friction: 0.8, restitution: 0, filterGroupIndex: -1 });
+  });
+  nb.setLinearVelocity(old.getLinearVelocityFromWorldPoint(nb.getWorldCenter()));
+  nb.setAngularVelocity(old.getAngularVelocity());
+  list.forEach(function (q, i) { old.destroyFixture(q.fixture); q.fixture = fresh[i]; q.body = nb; });
+}
+
+function splitBodies() {             // every connected piece on a body of its own (pieces only ever come apart, they never join)
+  const bodies = [];
+  for (const p of sim.parts) if (bodies.indexOf(p.body) < 0) bodies.push(p.body);
+  for (const body of bodies) {
+    const here = sim.parts.filter(function (q) { return q.body === body; }), keep = here[0].group, others = {};
+    for (const q of here) if (q.group !== keep) (others[q.group] = others[q.group] || []).push(q);
+    for (const g in others) moveToNewBody(others[g], body);
+  }
 }
 
 /* Works out which parts are the rocket you fly (the piece holding the highest part), which are dropped pieces, which tanks feed which
    engines (fuel does not cross a decoupler), and which body the camera and the steering follow. Runs at the start and after every split. */
 function updateVessels() {
   const n = sim.parts.length;
-  function sets(barrier) {           // pieces joined by live welds. barrier: fuel does not cross a decoupler
+  function sets(barrier) {           // pieces joined by live links. barrier: fuel does not cross a decoupler
     const root = [];
     for (let i = 0; i < n; i++) root.push(i);
     const find = function (x) { while (root[x] !== x) { root[x] = root[root[x]]; x = root[x]; } return x; };
@@ -99,6 +138,7 @@ function updateVessels() {
   const whole = sets(false), feed = sets(true), mine = whole(sim.topPart.idx);
   for (const p of sim.parts) { p.group = whole(p.idx); p.debris = p.group !== mine; }
   sim.vessel = sim.parts.filter(function (p) { return !p.debris; });
+  splitBodies();
 
   sim.wheelMax = 0;                  // the reaction wheels still on the rocket you fly add up to its turning push
   for (const p of sim.vessel) for (const f of p.forces) if (f.kind === "wheel") sim.wheelMax += f.torque;
@@ -121,8 +161,8 @@ function updateVessels() {
   sim.pvx = v.x; sim.pvy = v.y;
 }
 
-function totalMass() {
-  return (sim.vessel || sim.parts).reduce(function (m, q) { return m + q.body.getMass(); }, 0);
+function totalMass() {               // the rocket you fly
+  return (sim.vessel || sim.parts).reduce(function (m, q) { return m + partMass(q); }, 0);
 }
 
 function maxThrust() {               // thrust of all engines at full throttle, in the air pressure right now, N

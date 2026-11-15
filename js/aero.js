@@ -7,12 +7,18 @@
    the HUD shows about them (dynamic pressure, angle of attack, stability).
    The air is still (no wind) and does not rotate with the planet.
    Every force is worked out from the part's own speed through the air and
-   applied at the part's centre. The welded parts then turn the whole rocket
-   by themselves: there is no special stability code anywhere.
+   applied at the part's own centre, on the body the part sits on (every part
+   of a connected piece of rocket shares one body: that body then turns by itself,
+   so there is no special stability code anywhere).
    Each part's own axes: x across it, y along it (nose end is +y).
    ===================================================================== */
 
 function airDensity(h) { return RHO0 * Math.exp(-Math.max(0, h) / SCALE_HEIGHT); }
+
+/* Where a part's own centre is in the world, and what it weighs right now (a tank weighs its dry mass plus the fuel left in it).
+   A part has no body of its own: lx, ly is where its centre sits in the frame of the body it is on. */
+function partCenter(p) { return p.body.getWorldPoint(P(p.lx, p.ly)); }
+function partMass(p) { return p.tank ? p.tank.dry + p.tank.fuel : p.def.mass; }
 
 /* Work out the areas once, when the rocket is built.
    drag: sideA = cdSide x (length x depth), axialA = cdAxial x (width x depth), both in m2.
@@ -27,9 +33,9 @@ function prepareAero(part, f) {
 
 function applyAeroForce(part, f) {
   const b = part.body, a = b.getAngle(), cs = Math.cos(a), sn = Math.sin(a);
-  const wp = b.getWorldCenter();
+  const wp = partCenter(part);
   const rho = airDensity(Math.hypot(wp.x, wp.y) - R);
-  const v = b.getLinearVelocityFromWorldPoint(wp);          // includes the push of the part's own spin
+  const v = b.getLinearVelocityFromWorldPoint(wp);          // includes the push of the body's own spin
   const V = Math.hypot(v.x, v.y);
   if (V < 1e-6 || rho < 1e-12) return;
   const vx = v.x * cs + v.y * sn;                           // air speed across the part (its x axis is (cs, sn))
@@ -53,7 +59,7 @@ function applyAero() {
   }
 }
 
-/* Numbers for the HUD, worked out after each step from the tank (the hull). */
+/* Numbers for the HUD, worked out after each step from the body the hull is on. */
 function updateFlightStats() {
   const b = sim.hull.body, p = b.getPosition(), v = b.getLinearVelocity();
   sim.rho = airDensity(Math.hypot(p.x, p.y) - R);
@@ -76,10 +82,10 @@ function updateFlightStats() {
    where the sideways air force acts for a small angle: every drag and fin force counts, weighted by its
    sideways area. null = nothing to push against the air. */
 function stabilityCal() {
-  const h = sim.hull.body, a = h.getAngle(), ax = -Math.sin(a), ay = Math.cos(a), o = h.getWorldCenter();
+  const h = sim.hull.body, a = h.getAngle(), ax = -Math.sin(a), ay = Math.cos(a), o = partCenter(sim.hull);
   let m = 0, ms = 0, w = 0, ws = 0;
   for (const p of (sim.vessel || sim.parts)) {
-    const c = p.body.getWorldCenter(), s = (c.x - o.x) * ax + (c.y - o.y) * ay, pm = p.body.getMass();
+    const c = partCenter(p), s = (c.x - o.x) * ax + (c.y - o.y) * ay, pm = partMass(p);
     m += pm; ms += pm * s;
     for (const f of p.forces) {
       const wt = f.kind === "fin" ? f.liftA : f.kind === "drag" ? f.sideA : 0;
