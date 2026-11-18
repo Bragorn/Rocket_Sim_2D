@@ -35,6 +35,10 @@ const RULES = {
                             // 2 m wheel (about 190 kg) gives 36 kN*m, which is what the old fixed reaction wheel gave
   sideGridM: 0.1,           // fins and legs slide along a tank in steps of this (m)
   gridM: 0.5,               // tank and nose lengths come in multiples of this (m)
+  impactJPerKg: { leg: 800, engine: 100, fin: 60, nose: 50, decoupler: 50, wheel: 50, tank: 40 },
+                            // BREAKING. Joules of impact energy a part can soak up before it breaks, per kg of its own mass
+                            // (a tank counts its walls only, not its fuel). MADE UP, to be tuned from play tests: legs are built for it,
+                            // engine bells are fragile, fins and nose cones weaker still. See impactCapacity()
   tankDryMin: 0.02, tankDryMax: 0.20   // dry mass / fuel mass of a tank must land in this band (small tanks are
                                          // heavier for their fuel, big ones lighter: wall area grows slower than volume)
 };
@@ -66,6 +70,11 @@ function decouplerSpec(width) {      // a ring between two parts: its weight, an
 function wheelSpec(width) {          // a reaction wheel for a body this wide: its weight and its turning push (N*m). The torque follows the weight
   const area = Math.PI * width * width / 4, mass = area * RULES.wheelPerM2;
   return { mass: mass, torque: mass * RULES.wheelTorquePerKg };
+}
+
+function impactCapacity(def) {       // joules a part can soak up when it hits something before it breaks (rules: impactJPerKg)
+  const kg = def.fuel ? def.fuel.dry : def.mass;
+  return (RULES.impactJPerKg[def.kind] || 0) * kg;
 }
 
 /* Test a list of parts (ROCKET.parts) against the rules. Returns a list of breaches (empty = all good). */

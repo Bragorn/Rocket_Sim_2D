@@ -91,6 +91,54 @@ function fireStage() {               // the next row of the staging list: engine
   return true;
 }
 
+/* ---- breaking: a part that hits the ground too hard breaks off ----
+   Each step the world (onPreSolve / onPostSolve in world.js) noted, for every part touching the ground, how fast its contact point was
+   closing on the ground (part.hitV) and how much push the ground gave it (part.hitJ). The work the ground did on that part is about
+   half of push x closing speed. That is the impact energy the part had to soak up, and it already shares the landing among the legs
+   by itself (the leg that touches first, or that is pushed harder, takes more) and counts the rocket's whole weight and spin.
+   If it is more than the part's own capacity (rules.js, impactCapacity) the part breaks off, and only that part: its link is cut, so it
+   (and anything that hung only from it) becomes a separate piece. Nothing else is checked, so one break never sets off another.
+   The first part, the hull, has no link and cannot break off. Dropped pieces do not break. */
+function breakPart(p) {
+  const jt = p.joint;
+  if (!jt) return false;
+  sim.joints.splice(sim.joints.indexOf(jt), 1);
+  p.joint = null;
+  // The rocket you fly stays the piece the hull is in, whichever piece holds the highest part (a nose that breaks off must not
+  // become "the rocket" and leave the tanks behind as wreckage). So the reference part becomes the highest one still linked to the hull.
+  const keep = {}, queue = [sim.hull];
+  keep[sim.hull.idx] = true;
+  while (queue.length) {
+    const q = queue.pop();
+    for (const j of sim.joints) {
+      const other = j.part === q ? j.parent : j.parent === q ? j.part : null;
+      if (other && !keep[other.idx]) { keep[other.idx] = true; queue.push(other); }
+    }
+  }
+  let top = sim.hull, topY = -Infinity;
+  for (const q of sim.parts) if (keep[q.idx]) for (const v of q.verts) if (q.def.at[1] + v.y > topY) { topY = q.def.at[1] + v.y; top = q; }
+  sim.topPart = top;
+  updateVessels();
+  return true;
+}
+
+function checkImpacts() {
+  const hits = [];
+  for (const p of sim.parts) {
+    const J = p.hitJ, vc = p.hitV;
+    p.hitJ = 0; p.hitV = 0;
+    if (J <= 0 || p.debris || !p.joint || vc < MIN_IMPACT_SPEED) continue;
+    const E = 0.5 * J * vc, cap = impactCapacity(p.def);
+    if (E > cap) hits.push({ part: p, E: E, cap: cap, v: vc });
+  }
+  if (hits.length === 0) return;
+  const mass = totalMass(), fuel = sim.fuel;          // the rocket as it was when it hit
+  for (const h of hits) {
+    log("T+" + sim.t.toFixed(1) + " s: " + h.part.name + " broke off. It took " + (h.E / 1000).toFixed(1) + " kJ and can take " + (h.cap / 1000).toFixed(1) + " kJ (closing at " + h.v.toFixed(1) + " m/s, rocket " + mass.toFixed(0) + " kg with " + fuel.toFixed(0) + " kg of fuel)", "warning");
+    breakPart(h.part);
+  }
+}
+
 function stepSim() {
   const w = sim.world;
   addGravity(w);
@@ -105,6 +153,7 @@ function stepSim() {
   sim.hull.body.applyTorque(clamp(tq, -wheelMax, wheelMax), true);
 
   w.step(DT, VEL_IT, POS_IT);
+  checkImpacts();                                             // parts that hit the ground too hard break off
   if (sim.thrust > 0) sim.started = true;                     // the flight clock starts at ignition
   if (sim.started) sim.t += DT;
   updateFlightStats();

@@ -34,6 +34,10 @@ const SPACE_ALT = 70000;             // above this the air is too thin to matter
 /* ---- the pad ---- */
 const PAD_GAP = 0.02;                // the lowest point of the rocket starts this far above the ground, m
 
+/* ---- breaking ---- */
+const MIN_IMPACT_SPEED = 0.5;        // m/s: a part touching the ground slower than this is never damaged (guards against numerical noise).
+                                     // How much a part can take is in rules.js (impactJPerKg)
+
 /* The engine's built-in speed cap (2 m per step) would hold everything below 120 m/s.
    Raising it is what lets orbits work. */
 try {
