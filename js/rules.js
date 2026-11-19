@@ -16,7 +16,7 @@ const RULES = {
   engineTWR: 60,            // engine thrust (vacuum) / engine weight: a bit below real engines
   ispSl: 280,               // s, engine efficiency at sea level
   ispVac: 310,              // s, in vacuum
-  minThrottle: 0.4,         // an engine cannot run below this fraction of its thrust once lit
+  minThrottle: 0.15,         // an engine cannot run below this fraction of its thrust once lit
   engineThrustPerM2: 0.6e6, // an engine's width is sqrt(thrust / this): thrust per square meter of its footprint.
                             // Real engines manage about 1 MN per m2 or more, so these are a little bulkier than real
   engineAspect: 1.8,        // an engine is this many times longer than it is wide (the bell included)

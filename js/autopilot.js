@@ -20,7 +20,7 @@
 const AP_MODES = [["hold", "Hold", "Digit1", "hold the heading it has now"], ["pro", "Pro", "Digit2", "hold prograde (along the path)"],
                   ["retro", "Retro", "Digit3", "hold retrograde (against the path)"], ["up", "Up", "Digit4", "hold up (away from the planet)"]];
 const AP_NAMES = { hold: "hold heading", pro: "prograde", retro: "retrograde", up: "up" };
-const autopilot = { mode: "off", target: 0, lastTarget: null, rate: 0, integ: 0, err: 0, onTarget: false, satTime: 0, noPower: false, lastWarn: -99 };
+const autopilot = { mode: "off", target: 0, lastTarget: null, rate: 0, integ: 0, err: 0, onTarget: false, satTime: 0, noPower: false, lastWarn: -99, manual: false };
 
 function wrapAngle(x) { return ((x + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI; }
 function tiltDeg(a) {                // the same angle the HUD calls tilt: 0 = pointing straight up from the planet
@@ -28,12 +28,27 @@ function tiltDeg(a) {                // the same angle the HUD calls tilt: 0 = p
   return wrapAngle(a + phi) * 180 / Math.PI;
 }
 
-function autopilotReset() { autopilot.mode = "off"; autopilot.lastTarget = null; autopilot.rate = 0; autopilot.integ = 0; autopilot.err = 0; autopilot.onTarget = false; autopilot.satTime = 0; autopilot.noPower = false; }
+function autopilotReset() { autopilot.mode = "off"; autopilot.lastTarget = null; autopilot.rate = 0; autopilot.integ = 0; autopilot.err = 0; autopilot.onTarget = false; autopilot.satTime = 0; autopilot.noPower = false; autopilot.manual = false; }
 
 function autopilotOff(why) {
   if (autopilot.mode === "off") return;
   log("Autopilot off" + (why ? " (" + why + ")" : ""), "autopilot");
   autopilotReset();
+}
+
+function autopilotOverride() {       // A or D held: the autopilot stands aside but stays switched on
+  if (!autopilot.manual) log("Autopilot: manual steering", "autopilot");
+  autopilot.manual = true; autopilot.integ = 0; autopilot.onTarget = false;
+}
+
+function autopilotRelease() {        // A and D let go: hold re-locks where the rocket will have stopped turning; the others just carry on
+  if (!autopilot.manual) return;
+  autopilot.manual = false; autopilot.integ = 0; autopilot.rate = 0; autopilot.lastTarget = null;
+  if (autopilot.mode === "hold") {
+    const b = sim.hull.body, w = b.getAngularVelocity(), tp = turningPower(), a = AP_AUTHORITY * (tp.aW + tp.aG);
+    autopilot.target = b.getAngle() + (a > 1e-9 ? w * Math.abs(w) / (2 * a) : 0);
+    log("Autopilot: holding tilt " + tiltDeg(autopilot.target).toFixed(0) + " deg", "autopilot");
+  }
 }
 
 function autopilotSet(mode) {        // switch a mode on, or off if it is already on
@@ -110,7 +125,15 @@ function drawAutopilotChips(y0, note) {
   c.fillText("AUTOPILOT", 720, y0 + 58);
   AP_MODES.forEach(function (m, i) { chip(720 + i * 50, y0 + 60, 46, 18, m[1], autopilot.mode === m[0], function () { autopilotSet(m[0]); }); });
   c.font = "11px monospace"; c.textBaseline = "middle"; c.textAlign = "left";
-  if (autopilot.mode !== "off") { c.fillStyle = autopilot.onTarget ? "#5fd38d" : "#f0b33c"; c.fillText(AP_NAMES[autopilot.mode] + ", " + Math.abs(autopilot.err * 180 / Math.PI).toFixed(1) + " deg off", 926, y0 + 69.5); }
+  if (autopilot.mode !== "off") {                                    // one status word: what it is doing right now
+    const deg = Math.abs(autopilot.err * 180 / Math.PI).toFixed(1);
+    let s, col = "#f0b33c";
+    if (autopilot.manual) s = "MANUAL, re-holds when you let go";
+    else if (autopilot.noPower) { s = "NO POWER to turn"; col = "#ff6b5e"; }
+    else if (autopilot.onTarget) { s = AP_NAMES[autopilot.mode] + ": on target"; col = "#5fd38d"; }
+    else s = AP_NAMES[autopilot.mode] + ": " + deg + " deg off";
+    c.fillStyle = col; c.fillText(s, 926, y0 + 69.5);
+  }
   if (note) { c.fillStyle = "#f0b33c"; c.fillText(note, 812, y0 + 41.5); }     // render.js draws the "running 3x" note in the corner these buttons use, so it is moved here
 }
 

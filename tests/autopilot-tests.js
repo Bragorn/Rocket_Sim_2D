@@ -55,8 +55,9 @@ check(Math.abs(run("controls").steer) <= 1, "what it hands over is a steer numbe
 set("hold");
 check(run("autopilot.mode") === "off" && logs.some(l => l.k === "autopilot" && /off/.test(l.s)), "pressing the same mode again switches it off, and says so in the log");
 S = makeRocket(); set("hold"); run("keys").KeyA = true; S.step(1);
-check(run("autopilot.mode") === "off" && logs.some(l => /took the controls/.test(l.s)) && run("controls").steer === 1, "pressing A takes the steering back, switches it off and steers by hand");
-run("keys").KeyA = false;
+check(run("autopilot.mode") === "hold" && run("autopilot.manual") === true && run("controls").steer === 1, "pressing A lets you steer by hand and the autopilot stays on");
+run("keys").KeyA = false; S.step(60 * 15);
+check(run("autopilot.manual") === false && run("autopilot.mode") === "hold" && Math.abs(S.w) < 0.01 && S.errDeg(run("autopilot.target")) < 0.5, "letting go re-holds the heading the rocket settles on");
 
 /* ---- 2. turning to a direction ---- */
 console.log("\n2. Turning");

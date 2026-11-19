@@ -196,7 +196,7 @@ run("closeMenu")();
 run("resetAll")(); run("resize")(); run("controls").throttle = 0.6; step(120);
 let drew = true; try { run("textAt = 0"); run("draw")(); run("showPerf = true"); run("draw")(); run("mapMode = true"); run("draw")(); run("mapMode = false"); } catch (e) { drew = false; console.log(e.stack); }
 check(drew, "the flight view, the map, the bar and the performance panel all draw");
-check(run("barButtons.length") === 3 && run("panelLines.length") === 5, "the bar has its three buttons (Map, -, +) and the panel its five lines");
+check(run("barButtons.length") === 3 && run("panelLines.length") === 3 && run("hudText.alt").length > 0, "the bar has its three buttons (Map, -, +), the panel its three orbit lines and the big readout its text");
 check(/FUEL/.test(run("barText.fuelLabel")) && run("barText.cols").length === 3, "the bar text was built for the gauges and three columns");
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));

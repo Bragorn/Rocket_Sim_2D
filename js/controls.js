@@ -25,8 +25,9 @@ function updateControls(dt) {        // called once per physics step, before the
   if (keys.KeyS) controls.throttle = Math.max(0, controls.throttle - 0.5 * dt);
   const hand = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0);
   if (typeof autopilotSteer === "function" && autopilot.mode !== "off") {
-    if (hand !== 0) autopilotOff("you took the controls");              // A or D hands the steering back to you
-    else { controls.steer = autopilotSteer(dt); return; }
+    if (hand !== 0) { autopilotOverride(); controls.steer = hand; return; }   // A or D: you steer while held
+    autopilotRelease();                                                       // let go: it takes over again
+    controls.steer = autopilotSteer(dt); return;
   }
   controls.steer = hand;
 }

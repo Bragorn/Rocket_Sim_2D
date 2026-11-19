@@ -60,18 +60,6 @@ function drawFlight(alt, phi) {
   c.fillStyle = "rgb(" + Math.round(135 - 125 * sky) + "," + Math.round(190 - 175 * sky) + "," + Math.round(235 - 195 * sky) + ")";
   c.fillRect(0, 0, W, Hh);
 
-  const stepY = Math.max(5, niceStep(120 / S));              // altitude lines
-  const yTop = alt + Hh * HOR / S, yBottom = alt - Hh * (1 - HOR) / S;
-  c.strokeStyle = "rgba(255,255,255,0.25)"; c.fillStyle = "rgba(255,255,255,0.8)";
-  c.font = "10px monospace"; c.textAlign = "left"; c.textBaseline = "bottom"; c.lineWidth = 1;
-  c.beginPath();
-  for (let k = Math.max(1, Math.ceil(yBottom / stepY)), n = 0; k * stepY <= yTop && n < 60; k++, n++) {
-    const Y = Math.round(Hh * HOR - (k * stepY - alt) * S) + 0.5;
-    c.moveTo(0, Y); c.lineTo(W, Y);
-    c.fillText(fmtAlt(k * stepY), 8, Y - 2);
-  }
-  c.stroke();
-
   const gyS = Hh * HOR + alt * S;                            // ground and its marks
   if (gyS < Hh) {
     const top = Math.max(0, gyS);
@@ -99,10 +87,14 @@ function drawFlight(alt, phi) {
     c.fillStyle = "#f1c40f"; c.beginPath(); c.moveTo(a1[0], a1[1]); c.lineTo(tip[0], tip[1]); c.lineTo(a2[0], a2[1]); c.closePath(); c.fill();
   }
 
-  if (S * 6.3 < 16) {                                        // too small to see: show a marker instead
-    const m = T(p);
+  if (S * 6.3 < 16) {                                        // too small to see: an arrow pointing the way the nose points (same as the map)
+    const m = T(p), tilt = sim.hull.body.getAngle() + phi, dx = -Math.sin(tilt), dy = -Math.cos(tilt);
     c.fillStyle = "#e74c3c"; c.strokeStyle = "#fff"; c.lineWidth = 1.5;
-    c.beginPath(); c.arc(m[0], m[1], 5, 0, 6.2832); c.fill(); c.stroke();
+    c.beginPath();
+    c.moveTo(m[0] + dx * 11, m[1] + dy * 11);
+    c.lineTo(m[0] - dx * 7 - dy * 6, m[1] - dy * 7 + dx * 6);
+    c.lineTo(m[0] - dx * 7 + dy * 6, m[1] - dy * 7 - dx * 6);
+    c.closePath(); c.fill(); c.stroke();
     return;
   }
   for (const part of sim.parts) {                            // the parts (each shape is placed on its body: ox, oy is where the part sits there)
@@ -158,7 +150,7 @@ function drawMap(o) {                                        // the whole planet
 
 /* ---- the text is rebuilt 10 times a second, not every frame: easier to read and much less work for the browser ---- */
 const barButtons = [];               // clickable chips in the bottom bar, remade each frame: { x, y, w, h, fn }
-let textAt = 0, panelLines = [], barText = { fuelFrac: 1, fuelLabel: "", thrLabel: "", cols: [] };
+let textAt = 0, hudText = null, panelLines = [], barText = { fuelFrac: 1, fuelLabel: "", thrLabel: "", cols: [] };
 let showPerf = false;                // the pause menu switches this
 const perf = { frame: 16.7, sim: 0, draw: 0, steps: 0 };   // filled in by main.js
 
@@ -173,9 +165,9 @@ function rebuildText() {
   const dv = vacIsp() * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
   const twr = maxThrust() / (mass * MU / (r * r));
   const peAlt = o.rp - R - sim.refOffset, cal = stabilityCal();
+  hudText = { alt: fmtBig(alt - sim.refOffset), speed: (speed < 10 ? speed.toFixed(1) : speed.toFixed(0)) + " m/s",
+              vert: (vert >= 0 ? "\u25B2 " : "\u25BC ") + (Math.abs(vert) < 10 ? Math.abs(vert).toFixed(1) : Math.abs(vert).toFixed(0)) + " m/s" };
   panelLines = [
-    "Altitude   " + fmtAlt(alt - sim.refOffset),
-    "Speed      " + speed.toFixed(0) + " m/s  (up " + vert.toFixed(0) + ", along " + side.toFixed(0) + ")",
     "Apoapsis   " + fmtAlt(o.ra - R - sim.refOffset),
     "Periapsis  " + fmtAlt(peAlt) + (o.bound && peAlt > 0 ? "  IN ORBIT" : ""),
     "Period     " + fmtTime(o.period)
@@ -188,6 +180,26 @@ function rebuildText() {
            [555, ["Air        " + sim.rho.toFixed(3) + " kg/m3", "Dyn press  " + (sim.q / 1000).toFixed(2) + " kPa", "Max Q      " + (sim.maxQ / 1000).toFixed(2) + " kPa", "Thrust     " + (sim.thrust / 1000).toFixed(0) + " kN"]]],
     warpNote: warpActual < warp * 0.9 ? "running " + warpActual.toFixed(1) + "x" : ""
   };
+}
+
+function fmtBig(m) {                 // a distance for the big readout: tenths of a meter under 100 m (for landing), km above 10 km
+  if (!isFinite(m)) return "-";
+  const a = Math.abs(m);
+  return a < 100 ? m.toFixed(1) + " m" : a < 10000 ? m.toFixed(0) + " m" : (m / 1000).toFixed(1) + " km";
+}
+
+function drawHud() {                 // top middle: the three numbers to read at a glance
+  const h = hudText;
+  if (!h) return;
+  const cells = [["ALTITUDE", h.alt], ["SPEED", h.speed], ["VERTICAL", h.vert]], cw = 140, x0 = W / 2 - cw * cells.length / 2;
+  c.fillStyle = "rgba(10,14,18,0.55)"; c.fillRect(x0, 8, cw * cells.length, 52);
+  c.textAlign = "center"; c.textBaseline = "top";
+  cells.forEach(function (cell, i) {
+    const x = x0 + cw * (i + 0.5);
+    c.font = "10px monospace"; c.fillStyle = "#8a98a3"; c.fillText(cell[0], x, 13);
+    c.font = "bold 22px monospace"; c.fillStyle = "#e8eef2"; c.fillText(cell[1], x, 27);
+  });
+  c.textAlign = "left";
 }
 
 function drawPanel(lines) {          // top left: the numbers you watch while flying
@@ -283,6 +295,7 @@ function draw() {
   const now = performance.now();
   if (now - textAt > 100) { textAt = now; rebuildText(); }
   drawPanel(panelLines);
+  drawHud();
   drawBar();
   drawStaging();
   if (showPerf) drawPerf();
