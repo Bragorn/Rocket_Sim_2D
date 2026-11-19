@@ -38,6 +38,14 @@ const PAD_GAP = 0.02;                // the lowest point of the rocket starts th
 const MIN_IMPACT_SPEED = 0.5;        // m/s: a part touching the ground slower than this is never damaged (guards against numerical noise).
                                      // How much a part can take is in rules.js (impactJPerKg)
 
+/* ---- autopilot (autopilot.js) ---- */
+const AP_AUTHORITY = 0.5;            // the autopilot plans its turns using this fraction of the turning power the rocket has, so it keeps some in reserve for disturbances
+const AP_GAIN = 1.2;                 // 1/s: how hard it pulls on a small angle error (bigger = snappier, too big and it wobbles)
+const AP_SETTLE = 0.15;              // s: how quickly it tries to get the spin it wants (must be well under 1 / (4 x AP_GAIN))
+const AP_MAX_RATE = 1.0;             // rad/s: it never asks for a faster spin than this
+const AP_KI = 0.8;                   // steer per (rad x s): the slow push that cancels a steady push on the rocket (air, an off-centre engine)
+const AP_MIN_SPEED = 1;              // m/s: slower than this there is no "prograde" or "retrograde", so it keeps the direction it had
+
 /* The engine's built-in speed cap (2 m per step) would hold everything below 120 m/s.
    Raising it is what lets orbits work. */
 try {
