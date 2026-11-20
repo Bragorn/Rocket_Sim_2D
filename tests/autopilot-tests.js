@@ -103,6 +103,13 @@ S = makeRocket({ vel: { x: 0, y: 2 } }); set("pro"); S.step(60 * 3); ctx.sim.hul
 S.vel = { x: -50, y: 2 }; S.step(60 * 15);
 check(S.errDeg(Math.atan2(50, 2)) < 1.5, "prograde follows the path as it changes (the target moves, the rocket follows it)");
 
+S = makeRocket({ vel: { x: 0, y: -4 } }); set("retro"); S.step(2);
+check(run("autopilot.mode") === "up" && logs.some(l => /was retrograde/.test(l.s)), "retrograde, slow and near the ground: it hands over to up instead of chasing a path that is dying");
+S = makeRocket({ vel: { x: 0, y: -60 } }); set("retro"); S.step(60);
+check(run("autopilot.mode") === "retro", "while still fast, retrograde stays on");
+S = makeRocket({ vel: { x: 0, y: -4 }, pos: { x: 0, y: R + 20000 } }); set("retro"); S.step(60);
+check(run("autopilot.mode") === "retro", "slow but high up (a burn in orbit, not a landing): retrograde stays on");
+
 /* ---- 5. no turning power ---- */
 console.log("\n5. Nothing to turn with");
 S = makeRocket({ wheel: 0 }); set("hold"); ctx.__t = dir(40); run("autopilot.target = __t"); S.step(60 * 5);

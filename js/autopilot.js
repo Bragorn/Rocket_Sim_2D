@@ -89,8 +89,17 @@ function turningPower() {
   return { aW: sim.wheelMax / I, aG: g / I };
 }
 
+/* Retrograde is wrong at the very end of a landing burn: as the speed dies the direction of the path swings round (and flips if the burn overshoots),
+   and the rocket would turn to chase it. So near the ground and slow, it hands over to "up", which holds the rocket upright for touchdown. */
+function autopilotHandoff() {
+  if (autopilot.mode !== "retro") return;
+  const b = sim.hull.body, p = b.getPosition(), v = b.getLinearVelocity();
+  if (Math.hypot(v.x, v.y) < AP_RETRO_HANDOFF && Math.hypot(p.x, p.y) - R < AP_RETRO_ALT) autopilotSet("up");
+}
+
 function autopilotSteer(dt) {
   const b = sim.hull.body, w = b.getAngularVelocity();
+  autopilotHandoff();
   autopilotAim(dt);
   const err = wrapAngle(autopilot.target - b.getAngle()), tp = turningPower(), aTot = tp.aW + tp.aG;
   autopilot.err = err;

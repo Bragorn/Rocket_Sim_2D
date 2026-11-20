@@ -6,6 +6,7 @@
    middle, the rocket's numbers and the buttons on the right. Dragging,
    snapping and checking are in edit.js and design.js; this file is the screen.
    Rocket coordinates: x right, y up, in meters; the first part's bottom is at y = 0.
+   Loose parts: let go of a part away from the rocket and it is parked on the grid (not in the design). Park a stack, change a part, drag the stack back.
    ===================================================================== */
 
 const stage = document.getElementById("stage"), sc = stage.getContext("2d");
@@ -19,6 +20,7 @@ let drag = null;                     // a part being carried: { kind: "new" | "m
 let pan = null;                      // dragging the view: { x, y }
 let pending = null;                  // mouse pressed on a placed part, may turn into a move
 let mirror = true;                   // fins and legs go in pairs
+let parked = [];                     // loose groups set down beside the rocket: { parts, x, y } (see edit.js). Not part of the design
 let view = { cx: 0, cy: 3, scale: 28 };   // the middle of the screen in meters, and pixels per meter
 let W = 100, H = 100;
 const mouse = { px: 0, py: 0, inside: false };
@@ -28,6 +30,40 @@ const stageUi = { targets: [], chips: {}, shown: undefined };   // the staging b
 let stageDrag = null;                // a chip being dragged: { id, x, y, moved, hot }
 const stagingEl = document.getElementById("staging");
 function withStages(d) { return Object.assign({}, d, { stages: stagesOf(d) }); }   // the design with its staging list cleaned up
+
+/* ---- loose parts. They live beside the design, so the numbers, staging, saving and launching only ever see the connected rocket. Groups are never changed in place. ---- */
+const groupGeos = new WeakMap();
+function groupGeo(g) { let v = groupGeos.get(g); if (!v) { v = geometryOf({ version: 1, parts: g.parts }); groupGeos.set(g, v); } return v; }
+function parkedIndexOf(id) { return parked.findIndex(function (g) { return g.parts.some(function (p) { return p.id === id; }); }); }
+function partExists(id) { return !!partById(design, id) || parkedIndexOf(id) >= 0; }
+function freshIdAll(type) {          // an id used by nothing on the rocket and nothing parked
+  const used = {};
+  for (const p of design.parts) used[p.id] = true;
+  for (const g of parked) for (const p of g.parts) used[p.id] = true;
+  let n = 1; while (used[type + n]) n++;
+  return type + n;
+}
+function stripRoot(parts) { const c = cloneDesign({ parts: parts }).parts; for (const k of ["parent", "anchor", "dx", "side", "y"]) delete c[0][k]; return c; }
+function canPark(d) { return PART_TYPES[d.moved[0].type].kind === "stack"; }       // fins and legs cannot stand alone
+function parkSpot(d, w) {            // where the group's frame goes if it is let go with the mouse at w
+  if (d.origin) return { x: d.origin.x + (w.x - d.m0.x), y: d.origin.y + (w.y - d.m0.y) };          // a carried piece keeps the way you hold it
+  return { x: w.x, y: w.y - PART_TYPES[d.moved[0].type].make(d.moved[0]).length / 2 };              // a new part: its middle on the mouse
+}
+function parkedAt(w) {               // the loose part under a point, if any
+  for (let gi = parked.length - 1; gi >= 0; gi--) {
+    const g = parked[gi], geo = groupGeo(g), lw = { x: w.x - g.x, y: w.y - g.y };
+    for (let i = geo.length - 1; i >= 0; i--) if (inPoly(geo[i], lw)) return { gi: gi, id: geo[i].designId };
+  }
+  return null;
+}
+function validGroup(g) { return g && Array.isArray(g.parts) && g.parts.length > 0 && isFinite(g.x) && isFinite(g.y) && validateDesign({ version: 1, parts: g.parts }, true).length === 0; }
+function saveDraft() {
+  try { localStorage.setItem("rocketsim.draft", JSON.stringify(design)); localStorage.setItem("rocketsim.parked", JSON.stringify(parked)); } catch (e) { /* storage blocked: fine */ }
+}
+function loadParkedDraft() {
+  try { const t = localStorage.getItem("rocketsim.parked"); if (!t) return; const list = JSON.parse(t); if (Array.isArray(list)) parked = list.filter(validGroup); } catch (e) { /* ok */ }
+}
+function okToDiscardParked() { return parked.length === 0 || confirm("This also throws away the loose parts. Continue?"); }
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 const fmtKg = (kg) => kg >= 1000 ? (kg / 1000).toFixed(1) + " t" : Math.round(kg) + " kg";
@@ -61,26 +97,37 @@ function fitView() {
 }
 
 /* ---- the design ---- */
-function setDesign(d, record) {
-  if (record !== false) { history.push(JSON.stringify(design)); if (history.length > 60) history.shift(); }
+function setDesign(d, record, newParked) {      // newParked (optional): the loose groups after this change. One undo step covers both.
+  if (record !== false) { history.push(JSON.stringify({ d: design, p: parked })); if (history.length > 60) history.shift(); }
   design = withStages(d);
-  if (selected && !partById(design, selected)) selected = null;
-  try { localStorage.setItem("rocketsim.draft", JSON.stringify(design)); } catch (e) { /* storage blocked: fine */ }
+  if (newParked) parked = newParked;
+  if (selected && !partExists(selected)) selected = null;
+  saveDraft();
   refresh();
 }
 
 function undo() {
   if (!history.length) return;
-  design = JSON.parse(history.pop());
-  if (selected && !partById(design, selected)) selected = null;
+  const s = JSON.parse(history.pop());
+  design = s.d; parked = s.p || [];
+  if (selected && !partExists(selected)) selected = null;
+  saveDraft();
   refresh();
 }
 
-function removeSelected() {
+function removeSelected() {          // the part goes; body parts that hung off it stay behind as loose groups (fins and legs on it go with it)
   if (!selected) return;
-  const n = subtreeIds(design, selected).length;
-  if (n > 1 && !confirm("Remove this part and the " + (n - 1) + " attached to it?")) return;
-  setDesign(removeSubtree(design, selected));
+  const gi = parkedIndexOf(selected);
+  if (gi >= 0) {
+    const g = parked[gi], out = takeOut({ version: 1, parts: g.parts }, selected);
+    const rest = parked.filter(function (_, i) { return i !== gi; });
+    if (out.design.parts.length) rest.push({ parts: out.design.parts, x: g.x, y: g.y });
+    for (const q of out.groups) rest.push({ parts: q.parts, x: q.x + g.x, y: q.y + g.y });
+    setDesign(design, true, rest);
+    return;
+  }
+  const out = takeOut(design, selected);
+  setDesign(out.design, true, parked.concat(out.groups));
 }
 
 /* ---- the numbers panel ---- */
@@ -108,7 +155,7 @@ function buildRight() {
   rightEl.appendChild(el("div", "sec", "Designs"));
   const b1 = el("div", "btns");
   const bNew = el("button", "btn", "New"), bUndo = el("button", "btn", "Undo"), bFit = el("button", "btn", "Fit");
-  bNew.addEventListener("click", function () { if (design.parts.length === 0 || confirm("Start a new, empty design?")) { setDesign({ version: 1, name: "New rocket", parts: [] }); selected = null; fitView(); } });
+  bNew.addEventListener("click", function () { if ((design.parts.length === 0 && parked.length === 0) || confirm("Start a new, empty design?")) { setDesign({ version: 1, name: "New rocket", parts: [] }, true, []); selected = null; fitView(); } });
   bUndo.addEventListener("click", undo); bFit.addEventListener("click", fitView);
   for (const b of [bNew, bUndo, bFit]) b2(b, b1);
   rightEl.appendChild(b1);
@@ -125,7 +172,7 @@ function buildRight() {
   bLoad.addEventListener("click", loadNamed); bDel.addEventListener("click", deleteNamed);
   b2(bLoad, b3); b2(bDel, b3); rightEl.appendChild(b3);
   rightEl.appendChild(el("div", "sec", "Keys"));
-  const k = el("div", "box", "Delete: remove the selected part\nCtrl/Cmd+Z: undo   F: fit the view\nWheel: zoom   Drag empty space: pan\nDrag a placed part to move it");
+  const k = el("div", "box", "Delete: remove the selected part (what hangs off it is parked, not lost)\nCtrl/Cmd+Z: undo   F: fit the view\nWheel: zoom   Drag empty space: pan\nDrag a placed part to move it with everything hanging off it. Let go away from the rocket to park it. Loose parts block Launch and Save");
   k.style.whiteSpace = "pre-line"; k.style.color = "#8a98a3"; rightEl.appendChild(k);
 }
 function b2(b, parent) { b.type = "button"; parent.appendChild(b); }
@@ -135,6 +182,7 @@ function setText(row, text, cls) { ui.rows[row].textContent = text; ui.rows[row]
 function refresh() {
   ui.name.value = design.name || "";
   const st = statsOf(design), bad = design.parts.length ? validateDesign(design) : ["drop a part on the grid to start"];
+  if (parked.length) bad.unshift("Parts are not attached (" + parked.length + " loose): attach or delete them before you launch or save");
   if (!st) { for (const r of STAT_ROWS) setText(r[0], "-"); }
   else {
     setText("parts", String(st.parts));
@@ -227,6 +275,7 @@ function launch() {
   location.href = "index.html" + designToHash(design);
 }
 function saveNamed() {
+  if (parked.length) { alert("Parts are not attached. Attach or delete the loose parts before you save."); return; }
   const name = (design.name || "").trim() || "Untitled";
   if (saveDesign(name, design)) refresh(); else alert("This browser would not let me save. Use Export to keep a copy as a file.");
 }
@@ -235,10 +284,12 @@ function loadNamed() {
   if (!d) return;
   const bad = validateDesign(d, true);
   if (bad.length) { alert("That saved design has problems:\n" + bad.join("\n")); return; }
-  setDesign(d); selected = null; fitView();
+  if (!okToDiscardParked()) return;
+  setDesign(d, true, []); selected = null; fitView();
 }
 function deleteNamed() { if (ui.saved.value && confirm("Delete the saved design '" + ui.saved.value + "'?")) { deleteSavedDesign(ui.saved.value); refresh(); } }
 function exportFile() {
+  if (parked.length) { alert("Parts are not attached. Attach or delete the loose parts before you export."); return; }
   const blob = new Blob([designToText(design)], { type: "application/json" }), a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = ((design.name || "rocket").replace(/[^\w\- ]+/g, "").trim() || "rocket") + ".rocket.json";
@@ -251,7 +302,7 @@ function importFile() {
   const r = new FileReader();
   r.onload = function () {
     const res = designFromText(String(r.result));
-    if (res.design) { setDesign(res.design); selected = null; fitView(); } else alert("That file is not a usable design:\n" + res.problems.join("\n"));
+    if (res.design) { if (okToDiscardParked()) { setDesign(res.design, true, []); selected = null; fitView(); } } else alert("That file is not a usable design:\n" + res.problems.join("\n"));
     ui.file.value = "";
   };
   r.readAsText(f);
@@ -377,16 +428,29 @@ function buildLeft() {
 
 /* ---- dragging parts in ---- */
 function beginNewDrag(spec) {
-  const moved = [Object.assign({}, spec, { id: freshId(design, spec.type) })];
+  const moved = [Object.assign({}, spec, { id: freshIdAll(spec.type) })];
   drag = { kind: "new", moved: moved, base: design, ghost: null, mirror: mirror };
   selected = null;
   updateGhost();
 }
 
-function beginMove(id) {             // pick up a placed part together with everything attached to it
+function beginMove(id, from) {       // pick up a placed part together with everything attached to it. from = where the mouse took hold (meters)
   const ids = subtreeIds(design, id), moved = ids.map(function (i) { return cloneDesign({ parts: [partById(design, i)] }).parts[0]; });
-  const root = moved[0];
-  drag = { kind: "move", moved: moved, base: removeSubtree(design, id), ghost: null, mirror: root.type && PART_TYPES[root.type].kind === "side" ? root.side === 0 : mirror };
+  const root = moved[0], lg = looseGroupOf(design, id);
+  drag = { kind: "move", moved: moved, base: removeSubtree(design, id), ghost: null, mirror: root.type && PART_TYPES[root.type].kind === "side" ? root.side === 0 : mirror,
+           origin: { x: lg.x, y: lg.y }, m0: from };
+  updateGhost();
+}
+
+function beginMoveParked(gi, id, from) {   // pick up a loose part with everything hanging off it; the rest of its group stays parked
+  const g = parked[gi], gd = { version: 1, parts: g.parts }, ids = subtreeIds(gd, id);
+  const moved = ids.map(function (i) { return cloneDesign({ parts: [partById(gd, i)] }).parts[0]; }), root = moved[0];
+  const keep = g.parts.filter(function (p) { return ids.indexOf(p.id) < 0; });
+  const rest = parked.filter(function (_, i) { return i !== gi; });
+  if (keep.length) rest.push({ parts: keep, x: g.x, y: g.y });
+  const q = groupGeo(g).find(function (d) { return d.designId === id; });
+  drag = { kind: "parked", moved: moved, base: design, ghost: null, mirror: root.type && PART_TYPES[root.type].kind === "side" ? root.side === 0 : mirror,
+           parkedBase: rest, origin: { x: g.x + q.at[0], y: g.y + q.at[1] - q.length / 2 }, m0: from };
   updateGhost();
 }
 
@@ -401,10 +465,16 @@ function updateGhost() {
 function endDrag() {
   const d = drag; drag = null;
   if (!d) return;
-  if (d.ghost && d.ghost.snapped && d.ghost.valid) {
+  const g = d.ghost;
+  if (g && g.snapped && g.valid) {                                // it joins the rocket
     selected = d.moved[0].id;
-    setDesign(d.ghost.trial);
+    setDesign(g.trial, true, d.parkedBase);
     if (d.base.parts.length === 0) fitView();
+  } else if (g && g.snapped) refresh();                           // close to a join that is not allowed: nothing changes (the ghost said why)
+  else if (mouse.inside && canPark(d)) {                          // away from the rocket: it is parked right here
+    const s = parkSpot(d, toWorld(mouse.px, mouse.py));
+    selected = d.moved[0].id;
+    setDesign(d.kind === "move" ? d.base : design, true, (d.parkedBase || parked).concat([{ parts: stripRoot(d.moved), x: s.x, y: s.y }]));
   } else refresh();
 }
 
@@ -423,8 +493,8 @@ function partAt(d, w) { const g = geoOf(d); for (let i = g.length - 1; i >= 0; i
 stage.addEventListener("mousedown", function (e) {
   if (e.button !== 0) return;
   const p = pos(e); mouse.px = p.px; mouse.py = p.py; mouse.inside = true;
-  const id = partAt(design, toWorld(p.px, p.py));
-  if (id) { selected = id; pending = { px: p.px, py: p.py, id: id }; }
+  const w0 = toWorld(p.px, p.py), lp = parkedAt(w0), id = lp ? lp.id : partAt(design, w0);       // loose parts are drawn on top, so they are picked first
+  if (id) { selected = id; pending = { px: p.px, py: p.py, id: id, gi: lp ? lp.gi : -1 }; }
   else { selected = null; pan = { px: p.px, py: p.py, cx: view.cx, cy: view.cy }; }
 });
 
@@ -432,8 +502,10 @@ window.addEventListener("mousemove", function (e) {
   const p = pos(e); mouse.px = p.px; mouse.py = p.py;
   mouse.inside = p.px >= 0 && p.py >= 0 && p.px <= W && p.py <= H;
   if (pending && !drag && Math.hypot(p.px - pending.px, p.py - pending.py) > 6) {
-    if (pending.id === design.parts[0].id) pan = { px: pending.px, py: pending.py, cx: view.cx, cy: view.cy };   // the first part holds the rest: dragging it pans
-    else beginMove(pending.id);
+    const from = toWorld(pending.px, pending.py);
+    if (pending.gi >= 0) beginMoveParked(pending.gi, pending.id, from);
+    else if (pending.id === design.parts[0].id) pan = { px: pending.px, py: pending.py, cx: view.cx, cy: view.cy };   // the first part holds the rest: dragging it pans
+    else beginMove(pending.id, from);
     pending = null;
   }
   if (pan) { view.cx = pan.cx - (p.px - pan.px) / view.scale; view.cy = pan.cy + (p.py - pan.py) / view.scale; }
@@ -500,6 +572,15 @@ function drawParts(d) {
   }
 }
 
+function drawParked(list) {          // loose parts: a dashed outline says they are not part of the rocket
+  for (const g of list) for (const def of groupGeo(g)) {
+    polyPath(def, g.x, g.y);
+    sc.globalAlpha = 0.85; sc.fillStyle = def.color; sc.fill(); sc.globalAlpha = 1;
+    const hot = def.designId === selected;
+    sc.lineWidth = hot ? 2.5 : 1.5; sc.strokeStyle = hot ? "#f1c40f" : "rgba(255,255,255,0.6)"; sc.setLineDash(hot ? [] : [5, 4]); sc.stroke(); sc.setLineDash([]);
+  }
+}
+
 function drawMarkers() {             // the balance point (CG, full tank) and the centre of pressure (CP)
   const st = statsOf(design);
   if (!st || st.cp === null || view.scale < 14) return;
@@ -526,10 +607,16 @@ function drawGhost() {
       sc.fillStyle = "rgba(10,14,18,0.85)"; sc.fillRect(mouse.px + 14, mouse.py + 14, w + 12, 22);
       sc.fillStyle = "#ff6b5e"; sc.fillText(t, mouse.px + 20, mouse.py + 19);
     }
-  } else if (mouse.inside) {                                    // nothing close enough to join: the part just follows the mouse
-    const spec = drag.moved[0], def = previewOf(spec), w = toWorld(mouse.px, mouse.py);
-    def.at = [w.x, w.y];
-    polyPath(def); sc.fillStyle = "rgba(255,255,255,0.25)"; sc.fill(); sc.lineWidth = 1; sc.strokeStyle = "rgba(255,255,255,0.6)"; sc.stroke();
+  } else if (mouse.inside) {                                    // nothing close enough to join: let go here and it is parked
+    const w = toWorld(mouse.px, mouse.py);
+    if (canPark(drag)) {
+      const s = parkSpot(drag, w), geo = drag.parkGeo || (drag.parkGeo = geometryOf({ version: 1, parts: stripRoot(drag.moved) }));
+      for (const def of geo) { polyPath(def, s.x, s.y); sc.fillStyle = "rgba(255,255,255,0.25)"; sc.fill(); sc.lineWidth = 1; sc.strokeStyle = "rgba(255,255,255,0.6)"; sc.stroke(); }
+    } else {                                                    // a fin or leg cannot stand alone: it just follows the mouse
+      const def = previewOf(drag.moved[0]);
+      def.at = [w.x, w.y];
+      polyPath(def); sc.fillStyle = "rgba(255,255,255,0.25)"; sc.fill(); sc.lineWidth = 1; sc.strokeStyle = "rgba(255,255,255,0.6)"; sc.stroke();
+    }
   }
 }
 
@@ -539,10 +626,11 @@ function frame() {
   const shown = drag && drag.kind === "move" ? drag.base : design;
   if (shown.parts.length) drawParts(shown);
   else { sc.font = "14px monospace"; sc.fillStyle = "rgba(255,255,255,0.4)"; sc.textAlign = "center"; sc.textBaseline = "middle"; const o = toScreen(0, 0); sc.fillText("Drag a part here to start", o[0], o[1] - 40); }
+  drawParked(drag && drag.parkedBase ? drag.parkedBase : parked);
   if (!drag) drawMarkers();
   if (drag) drawGhost();
   sc.font = "11px monospace"; sc.fillStyle = "rgba(255,255,255,0.45)"; sc.textAlign = "left"; sc.textBaseline = "bottom";
-  sc.fillText("Drag a part from the left onto the rocket.  Click a part to select it, Delete removes it.  Drag a placed part to move it.", 10, H - 8);
+  sc.fillText("Drag a part onto the rocket, or let go beside it to park it.  Click to select, Delete removes.  Drag a placed part to move it.", 10, H - 8);
   requestAnimationFrame(frame);
 }
 
@@ -550,7 +638,7 @@ function frame() {
 (function start() {
   const fromHash = designFromHash(location.hash);              // coming back from the game (B), or a shared link
   let d = fromHash.design;
-  if (!d) { try { const t = localStorage.getItem("rocketsim.draft"); if (t) { const dd = JSON.parse(t); if (validateDesign(dd, true).length === 0) d = dd; } } catch (e) { /* ok */ } }
+  if (!d) { try { const t = localStorage.getItem("rocketsim.draft"); if (t) { const dd = JSON.parse(t); if (validateDesign(dd, true).length === 0) { d = dd; loadParkedDraft(); } } } catch (e) { /* ok */ } }
   design = withStages(d || cloneDesign(DESIGN));
   buildLeft(); buildRight();
   resize();

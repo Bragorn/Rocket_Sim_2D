@@ -115,3 +115,30 @@ function bestAttach(base, moved, mouse, opts) {
   }
   return first || { att: null, trial: null, problems: [], valid: false, snapped: false };
 }
+
+/* ---- loose parts (the builder's parking area) ----
+   A loose group is { parts, x, y }: a body part and what hangs off it, with the first part cut free of its parent. x, y is where the group's own
+   frame sits on the grid (its first part's bottom centre, in builder coordinates), so a group made from a rocket sits exactly where it was. */
+
+function looseGroupOf(d, id) {       // the part and everything hanging off it, as a loose group placed where it is in design d now
+  const ids = subtreeIds(d, id), parts = ids.map(function (i) { return cloneDesign({ parts: [partById(d, i)] }).parts[0]; });
+  for (const k of ["parent", "anchor", "dx", "side", "y"]) delete parts[0][k];
+  const g = geometryOf(d).find(function (q) { return q.designId === id; });
+  return { parts: parts, x: g.at[0], y: g.at[1] - g.length / 2 };
+}
+
+/* Take one part out of a design. The body parts that hung off it are not lost: each comes back as a loose group, still in place.
+   Fins and legs on the part go with it (they cannot stand alone). Returns { design, groups }. */
+function takeOut(d, id) {
+  const gone = {}, groups = [];
+  gone[id] = true;
+  for (const p of d.parts) {
+    if (p.parent !== id) continue;
+    if (PART_TYPES[p.type].kind !== "stack") { gone[p.id] = true; continue; }
+    groups.push(looseGroupOf(d, p.id));
+    for (const i of subtreeIds(d, p.id)) gone[i] = true;
+  }
+  const c = cloneDesign(d);
+  c.parts = c.parts.filter(function (q) { return !gone[q.id]; });
+  return { design: c, groups: groups };
+}

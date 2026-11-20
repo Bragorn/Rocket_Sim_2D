@@ -45,6 +45,8 @@ const AP_SETTLE = 0.15;              // s: how quickly it tries to get the spin 
 const AP_MAX_RATE = 1.0;             // rad/s: it never asks for a faster spin than this
 const AP_KI = 0.8;                   // steer per (rad x s): the slow push that cancels a steady push on the rocket (air, an off-centre engine)
 const AP_MIN_SPEED = 1;              // m/s: slower than this there is no "prograde" or "retrograde", so it keeps the direction it had
+const AP_RETRO_HANDOFF = 8;          // m/s: holding retrograde, slower than this and near the ground, it hands over to "up"
+const AP_RETRO_ALT = 3000;           // m: how close to the ground counts as "near" for that hand-over
 
 /* The engine's built-in speed cap (2 m per step) would hold everything below 120 m/s.
    Raising it is what lets orbits work. */

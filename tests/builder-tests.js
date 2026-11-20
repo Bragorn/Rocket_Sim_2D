@@ -198,5 +198,70 @@ check(g && g.valid && run("design.parts").some(p => p.type === "wheel" && p.anch
 // the draft is kept for the next visit
 check(stored["rocketsim.draft"] && JSON.parse(stored["rocketsim.draft"]).parts.length === 2, "the design is kept as a draft in the browser");
 
+/* ---- 4. loose parts ---- */
+console.log("\n4. Parking loose parts");
+const STACK = { version: 1, name: "stack", parts: [
+  tank("t1", 2, 2), eng("e1", "t1", 0, 100000),
+  { id: "d", type: "decoupler", width: 2, parent: "e1", anchor: "bottom", dx: 0 },
+  tank("t2", 2, 4, { parent: "d", anchor: "bottom", dx: 0 }), eng("e2", "t2", 0, 250000),
+  { id: "n", type: "nose", width: 2, length: 1.5, parent: "t1", anchor: "top", dx: 0 } ] };
+check(E("validateDesign")(STACK).length === 0, "a two-stage test rocket is valid");
+let out = E("takeOut")(STACK, "e1");
+check(out.design.parts.map(p => p.id).join() === "t1,n" && out.groups.length === 1 && out.groups[0].parts.map(p => p.id).join() === "d,t2,e2" && out.groups[0].parts[0].parent === undefined && E("validateDesign")({ version: 1, parts: out.groups[0].parts }, true).length === 0, "taking a part out keeps what hung off it as a loose group, with its first part cut free");
+const dGeo = E("geometryOf")(STACK).find(g => g.designId === "d");
+check(near(out.groups[0].x, dGeo.at[0]) && near(out.groups[0].y, dGeo.at[1] - dGeo.length / 2), "and the group is placed exactly where it was");
+const withFin = E("cloneDesign")(STACK); withFin.parts.push({ id: "f", type: "fin", parent: "t2", anchor: "side", side: 0, y: 1 });
+out = E("takeOut")(withFin, "t2");
+check(!out.design.parts.some(p => p.id === "f" || p.id === "t2") && out.groups.length === 1 && out.groups[0].parts[0].id === "e2", "fins on the removed part go with it; the engine below stays as a loose group");
+out = E("takeOut")(STACK, "t1");
+check(out.design.parts.length === 0 && out.groups.length === 2, "taking out the first part leaves nothing connected and two loose groups");
+
+ctx.__d = null;
+function fresh(d) { ctx.__d = d; run("setDesign(__d, false, [])"); run("selected = null"); run("history.length = 0"); run("fitView()"); frames(2); }
+// pick up the lower stage and let go in empty space
+fresh(STACK);
+let gd = geo().find(x => x.designId === "d"), gp = scr(gd.at[0], gd.at[1]);
+stageEmit("mousedown", { clientX: gp[0], clientY: gp[1] });
+emit("mousemove", { clientX: gp[0] + 230, clientY: gp[1] + 60 }); frames(1);
+check(run("drag.kind") === "move" && run("drag.moved.length") === 3 && !run("drag.ghost").snapped, "grabbing the decoupler carries it and the tank and engine below it, and nothing is close enough to join");
+emit("mouseup", {}); frames(1);
+check(run("design.parts.length") === 3 && run("parked.length") === 1 && run("parked[0].parts.length") === 3, "let go in empty space, the stage is parked and the rocket keeps the rest");
+check(run("ui.launch.disabled") === true && run("ui.problems.children").some(c => /not attached/.test(c.textContent)), "Launch is off and a line says parts are not attached");
+const savedBefore = stored["rocketsim.designs"];
+run("saveNamed")();
+let threw = false; try { run("exportFile")(); } catch (e) { threw = true; }
+check(stored["rocketsim.designs"] === savedBefore && !threw, "saving and exporting are refused while parts are loose");
+check(JSON.parse(stored["rocketsim.parked"]).length === 1, "the loose parts are kept in the draft");
+// drag it back under the engine
+const pg = run("parked[0]"), pgeo = run("groupGeo(parked[0])").find(x => x.designId === "d"), p3 = scr(pgeo.at[0] + pg.x, pgeo.at[1] + pg.y);
+stageEmit("mousedown", { clientX: p3[0], clientY: p3[1] });
+const e1g = geo().find(x => x.designId === "e1"), tgt = scr(e1g.at[0], e1g.at[1] - e1g.length / 2 - 0.1);
+emit("mousemove", { clientX: tgt[0], clientY: tgt[1] }); frames(1);
+check(run("drag.kind") === "parked" && run("drag.ghost").snapped && run("drag.ghost").valid, "dragging the loose stage back under the engine shows a valid join");
+emit("mouseup", {}); frames(1);
+check(run("design.parts.length") === 6 && run("parked.length") === 0 && run("ui.launch.disabled") === false && E("validateDesign")(run("design")).length === 0, "let go, it joins in one drop and the rocket is whole and valid again");
+emit("keydown", { code: "KeyZ", ctrlKey: true }); frames(1);
+check(run("parked.length") === 1 && run("design.parts.length") === 3, "undo takes the stage off again");
+emit("keydown", { code: "KeyZ", ctrlKey: true }); frames(1);
+check(run("parked.length") === 0 && run("design.parts.length") === 6, "and undo again puts the whole rocket back");
+// deleting the first part keeps everything else
+fresh(STACK); run("selected = 't1'"); emit("keydown", { code: "Delete" }); frames(1);
+check(run("design.parts.length") === 0 && run("parked.length") === 2 && run("ui.launch.disabled") === true, "deleting the first part parks what hung off it instead of deleting the lot");
+emit("keydown", { code: "KeyZ", ctrlKey: true }); frames(1);
+check(run("design.parts.length") === 6 && run("parked.length") === 0, "and undo brings it all back");
+// a part from the palette dropped away from the rocket is parked
+fresh({ version: 1, name: "t", parts: [tank("t", 2, 4), eng("e", "t")] });
+dropNew({ type: "nose", width: 2, length: 1.5 }, 6, 3);
+check(run("parked.length") === 1 && run("parked[0].parts[0].type") === "nose" && near(run("parked[0].x"), 6, 0.01) && near(run("parked[0].y"), 2.25, 0.01) && run("design.parts.length") === 2, "a new part let go away from the rocket is parked where it was dropped");
+dropNew({ type: "fin" }, 5, 5);
+check(run("parked.length") === 1 && run("design.parts.length") === 2, "a fin cannot be parked (it cannot stand alone), so it is not dropped");
+check(run("freshIdAll")("nose") === "nose2", "new parts never take an id a loose part already has");
+// selecting and deleting a loose part
+const lg = run("groupGeo(parked[0])")[0], lp0 = scr(lg.at[0] + run("parked[0].x"), lg.at[1] + run("parked[0].y"));
+stageEmit("mousedown", { clientX: lp0[0], clientY: lp0[1] }); emit("mouseup", {});
+check(run("selected") === "nose1", "clicking a loose part selects it");
+emit("keydown", { code: "Delete" }); frames(1);
+check(run("parked.length") === 0 && run("selected") === null, "Delete removes a loose part");
+
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);
