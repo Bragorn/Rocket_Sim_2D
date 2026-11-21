@@ -199,5 +199,12 @@ check(drew, "the flight view, the map, the bar and the performance panel all dra
 check(run("barButtons.length") === 3 && run("panelLines.length") === 3 && run("hudText.alt").length > 0, "the bar has its three buttons (Map, -, +), the panel its three orbit lines and the big readout its text");
 check(/FUEL/.test(run("barText.fuelLabel")) && run("barText.cols").length === 3, "the bar text was built for the gauges and three columns");
 
+/* ---- 5. ground height ---- */
+console.log("\n5. Ground height and the HUD");
+run("resetAll")(); run("resize")();
+check(near(run("groundHeight")(), run("PAD_GAP"), 1e-3), "on the pad the lowest point is the pad gap above the ground");
+run("textAt = 0"); run("draw")();
+check(run("hudText.ground") === null && /m$/.test(run("hudText.alt")), "the big altitude reads the height of the feet, and there is no ground countdown while sitting still");
+
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);

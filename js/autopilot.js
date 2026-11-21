@@ -141,7 +141,7 @@ function drawAutopilotChips(y0, note) {
     else if (autopilot.noPower) { s = "NO POWER to turn"; col = "#ff6b5e"; }
     else if (autopilot.onTarget) { s = AP_NAMES[autopilot.mode] + ": on target"; col = "#5fd38d"; }
     else s = AP_NAMES[autopilot.mode] + ": " + deg + " deg off";
-    c.fillStyle = col; c.fillText(s, 926, y0 + 69.5);
+    c.fillStyle = col; c.fillText(s, 976, y0 + 69.5);
   }
   if (note) { c.fillStyle = "#f0b33c"; c.fillText(note, 812, y0 + 41.5); }     // render.js draws the "running 3x" note in the corner these buttons use, so it is moved here
 }

@@ -219,3 +219,26 @@ function vacIsp() {                  // efficiency of the engines together in va
   for (const p of sim.vessel) for (const f of p.forces) if (f.kind === "thrust") { thrust += f.vac; flow += f.mdot; }
   return flow > 0 ? thrust / (flow * G0) : 0;
 }
+
+/* How high the lowest point of the rocket you fly is above the ground, m (the feet, not the middle of the hull). */
+function groundHeight() {
+  let low = Infinity;
+  for (const p of sim.vessel) for (const q of p.verts) {
+    const w = p.body.getWorldPoint(P(p.ox + q.x, p.oy + q.y)), h = Math.hypot(w.x, w.y) - R;
+    if (h < low) low = h;
+  }
+  return low;
+}
+
+/* Seconds until the lowest point reaches the ground if nothing changes (the engines as they are now, air ignored), or null when it is not
+   coming down, or would stop before it gets there. */
+function groundCountdown() {
+  const b = sim.hull.body, p = b.getPosition(), v = b.getLinearVelocity(), r = Math.hypot(p.x, p.y);
+  const vd = -(v.x * p.x + v.y * p.y) / r, h = groundHeight();
+  if (!(vd > 1) || !(h > 0)) return null;
+  const ang = b.getAngle(), up = (-Math.sin(ang) * p.x + Math.cos(ang) * p.y) / r;       // how much of the thrust points up
+  const a = MU / (r * r) - sim.thrust / totalMass() * up;                                // net acceleration downward
+  if (Math.abs(a) < 1e-6) return h / vd;
+  const disc = vd * vd + 2 * a * h;
+  return disc < 0 ? null : (-vd + Math.sqrt(disc)) / a;
+}

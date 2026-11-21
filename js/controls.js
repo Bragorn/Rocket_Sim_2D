@@ -18,11 +18,13 @@ let paused = false;                  // the pause menu sets this: while true the
 function controlsReset() {
   controls.throttle = 0; controls.steer = 0; controls.damping = true;
   if (typeof autopilotReset === "function") autopilotReset();
+  if (typeof landingReset === "function") landingReset();
 }
 
 function updateControls(dt) {        // called once per physics step, before the forces are worked out
   if (keys.KeyW) controls.throttle = Math.min(1, controls.throttle + 0.5 * dt);
   if (keys.KeyS) controls.throttle = Math.max(0, controls.throttle - 0.5 * dt);
+  if (typeof landingStep === "function") landingStep(dt);          // the landing program (landing.js) sets the throttle itself while it is on
   const hand = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0);
   if (typeof autopilotSteer === "function" && autopilot.mode !== "off") {
     if (hand !== 0) { autopilotOverride(); controls.steer = hand; return; }   // A or D: you steer while held

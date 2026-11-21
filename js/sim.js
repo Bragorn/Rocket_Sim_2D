@@ -158,7 +158,6 @@ function stepSim() {
   if (sim.started) sim.t += DT;
   updateFlightStats();
 
-  const p = sim.hull.body.getPosition();
-  if (Math.hypot(p.x, p.y) - R > 5.5) { sim.airborne = true; sim.flown = true; }
+  if (groundHeight() > 2.5) { sim.airborne = true; sim.flown = true; }      // in the air: the lowest point is clear of the ground (measured from the feet, so tall rockets count too)
   telemetryStep();
 }

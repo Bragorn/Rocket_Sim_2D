@@ -166,7 +166,7 @@ function rebuildText() {
   const dv = vacIsp() * G0 * Math.log(mass / Math.max(1, mass - sim.fuel));
   const twr = maxThrust() / (mass * MU / (r * r));
   const peAlt = o.rp - R - sim.refOffset, cal = stabilityCal();
-  hudText = { alt: fmtBig(alt - sim.refOffset), speed: (speed < 10 ? speed.toFixed(1) : speed.toFixed(0)) + " m/s",
+  hudText = { alt: fmtBig(groundHeight()), ground: groundCountdown(), speed: (speed < 10 ? speed.toFixed(1) : speed.toFixed(0)) + " m/s",
               vert: (vert >= 0 ? "\u25B2 " : "\u25BC ") + (Math.abs(vert) < 10 ? Math.abs(vert).toFixed(1) : Math.abs(vert).toFixed(0)) + " m/s" };
   panelLines = [
     "Apoapsis   " + fmtAlt(o.ra - R - sim.refOffset),
@@ -200,6 +200,11 @@ function drawHud() {                 // top middle: the three numbers to read at
     c.font = "10px monospace"; c.fillStyle = "#8a98a3"; c.fillText(cell[0], x, 13);
     c.font = "bold 22px monospace"; c.fillStyle = "#e8eef2"; c.fillText(cell[1], x, 27);
   });
+  if (h.ground !== null && h.ground < 60) {                    // "ground in N s": if nothing changes (the engines as they are now)
+    const t = h.ground, text = "GROUND IN " + (t < 10 ? t.toFixed(1) : t.toFixed(0)) + " s", w = 150;
+    c.fillStyle = "rgba(10,14,18,0.55)"; c.fillRect(W / 2 - w / 2, 64, w, 22);
+    c.font = "bold 14px monospace"; c.textAlign = "center"; c.fillStyle = t < 4 ? "#ff6b5e" : t < 10 ? "#f0b33c" : "#e8eef2"; c.fillText(text, W / 2, 68);
+  }
   c.textAlign = "left";
 }
 
