@@ -38,7 +38,7 @@ function stagesOf(design) {          // the staging rows, cleaned: only real eng
     if (r.length) rows.push(r);
   }
   const missing = design.parts.filter(function (d) { return STAGEABLE[d.type] && !seen[d.id]; });
-  if (given) { for (const d of missing) rows.push([d.id]); }              // a part the list forgot gets a row of its own, last
+  if (given) { for (const d of missing) rows.unshift([d.id]); }           // a part the list forgot gets a row of its own, at the TOP (it fires first): built top to bottom, the newest part is the lowest stage
   else {                                                                  // an older design: every engine in the first row, then each decoupler alone
     const engines = missing.filter(function (d) { return d.type === "engine"; }).map(function (d) { return d.id; });
     if (engines.length) rows.push(engines);

@@ -41,7 +41,7 @@ function toggleMap() {
   if (mapMode) {                     // fit the whole orbit (or at least the planet) on screen
     const p = sim.hull.body.getPosition(), o = orbitInfo(p, sim.hull.body.getLinearVelocity());
     const far = Math.max(R * 1.15, Math.min(o.ra, 8 * R), o.r);
-    mapS = mapSt = 0.40 * Math.min(W, Hh) / far;
+    mapS = mapSt = 0.40 * Math.min(W, Hh) / (far + o.r);       // the view is centred on the rocket, so the far side of the orbit is up to (its height + the orbit's size) away
   }
 }
 
@@ -107,11 +107,12 @@ function drawFlight(alt, phi) {
   }
 }
 
-function drawMap(o) {                                        // the whole planet, not rotating, orbit drawn on it
-  const cx = W / 2, cy = Hh / 2, M = (x, y) => [cx + x * mapS, cy - y * mapS];
+function drawMap(o) {                                        // the map: centred on the rocket, not rotating, planet and orbit drawn round it
+  const p = sim.hull.body.getPosition(), cx = W / 2, cy = Hh / 2, M = (x, y) => [cx + (x - p.x) * mapS, cy - (y - p.y) * mapS];
   c.fillStyle = "#05070a"; c.fillRect(0, 0, W, Hh);
   c.fillStyle = "#2f4a25"; c.strokeStyle = "#6f9a52"; c.lineWidth = 2;
-  c.beginPath(); c.arc(cx, cy, R * mapS, 0, 6.2832); c.fill(); c.stroke();
+  const mid = M(0, 0);                                       // the planet's centre on screen (it moves now: the view follows the rocket)
+  c.beginPath(); c.arc(mid[0], mid[1], R * mapS, 0, 6.2832); c.fill(); c.stroke();
 
   const pad = M(0, R);                                       // the launch pad
   c.fillStyle = "#e8eef2"; c.fillRect(pad[0] - 2, pad[1] - 2, 4, 4);
@@ -137,7 +138,7 @@ function drawMap(o) {                                        // the whole planet
     c.fillText("Ap " + fmtAlt(o.ra - R - sim.refOffset), ap[0] + 7, ap[1]);
   }
 
-  const p = sim.hull.body.getPosition(), a = sim.hull.body.getAngle();   // the rocket: an arrow pointing the way its nose points
+  const a = sim.hull.body.getAngle();                        // the rocket: an arrow pointing the way its nose points
   const m = M(p.x, p.y), dx = -Math.sin(a), dy = -Math.cos(a);
   c.fillStyle = "#e74c3c"; c.strokeStyle = "#fff"; c.lineWidth = 1.5;
   c.beginPath();

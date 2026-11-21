@@ -84,9 +84,9 @@ check(JSON.stringify(run("stagesOf")(TWO)) === '[["eng1"],["dec","eng2"]]', "a d
 const noList = clone(TWO); delete noList.stages;
 check(JSON.stringify(run("stagesOf")(noList)) === '[["eng2","eng1"],["dec"]]', "an older design with no list: all engines first, then each decoupler on its own");
 const forgot = clone(TWO); forgot.stages = [["eng1"], ["dec"]];
-check(JSON.stringify(run("stagesOf")(forgot)) === '[["eng1"],["dec"],["eng2"]]', "a part the list forgot gets a row of its own at the end");
+check(JSON.stringify(run("stagesOf")(forgot)) === '[["eng2"],["eng1"],["dec"]]', "a part the list forgot gets a row of its own at the top (it fires first: built top to bottom, the newest part is the lowest stage)");
 const messy = clone(TWO); messy.stages = [["eng1", "eng1", "ghost"], []];
-check(JSON.stringify(run("stagesOf")(messy)) === '[["eng1"],["eng2"],["dec"]]', "doubles, unknown ids and empty rows are cleaned out");
+check(JSON.stringify(run("stagesOf")(messy)) === '[["dec"],["eng2"],["eng1"]]', "doubles, unknown ids and empty rows are cleaned out, and forgotten parts go on top, the last-built first");
 const tankStaged = clone(TWO); tankStaged.stages = [["tank1"], ["eng1"]];
 check(bad(tankStaged).some(m => /not an engine or a decoupler/.test(m)), "a staging list that names a tank: refused");
 check(run("assemble")(TWO).labels.dec.verb === "Decouple" && run("assemble")(TWO).labels.eng2.label === "Engine 100 kN", "the assembled rocket carries the labels the flight bar shows");
