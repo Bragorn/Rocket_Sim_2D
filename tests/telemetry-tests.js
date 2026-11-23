@@ -37,7 +37,7 @@ const planck = { Settings: {}, Vec2, Polygon: function (v) { this.verts = v; }, 
 
 /* ---- page stand-in ---- */
 const noop = () => {};
-const ctx2d = new Proxy({}, { get: (t, k) => k === "measureText" ? () => ({ width: 10 }) : (t[k] !== undefined ? t[k] : noop), set: (t, k, v) => { t[k] = v; return true; } });
+const ctx2d = new Proxy({}, { get: (t, k) => k === "measureText" ? () => ({ width: 10 }) : (k === "createRadialGradient" || k === "createLinearGradient") ? () => ({ addColorStop() {} }) : (t[k] !== undefined ? t[k] : noop), set: (t, k, v) => { t[k] = v; return true; } });
 let canvasesMade = 0;
 function makeEl(tag) {
   if (tag === "canvas") canvasesMade++;
@@ -205,6 +205,46 @@ run("resetAll")(); run("resize")();
 check(near(run("groundHeight")(), run("PAD_GAP"), 1e-3), "on the pad the lowest point is the pad gap above the ground");
 run("textAt = 0"); run("draw")();
 check(run("hudText.ground") === null && /m$/.test(run("hudText.alt")), "the big altitude reads the height of the feet, and there is no ground countdown while sitting still");
+
+/* ---- 6. the looks ---- */
+console.log("\n6. Streaks, stars and the planet");
+let allIn = true;
+for (let i = 0; i < 300; i++) { const x = run(`hash3(${i}, ${i * 3 - 100}, ${i % 5})`); if (!(x >= 0 && x < 1)) allIn = false; }
+check(allIn && run("hash3(5, 7, 1)") === run("hash3(5, 7, 1)") && run("hash3(5, 7, 1)") !== run("hash3(5, 7, 2)"), "the repeatable random numbers stay from 0 up to 1, and are the same each time for the same cell");
+run("resetAll")(); run("resize")();
+const hb3 = run("sim.hull.body");
+hb3.getLinearVelocity = () => ({ x: 120, y: -200 }); hb3.getPosition = () => ({ x: 0, y: R + 3000 }); run("sim.rho = 0.9");
+let drew2 = true;
+try {
+  for (const z of [60, 9, 2, 0.3]) { run(`St = ${z}; S = ${z}`); run("textAt = 0"); run("draw")(); }
+  run("S = 9; St = 9"); run("sim.rho = 0"); run("draw")();
+  hb3.getPosition = () => ({ x: 0, y: R + 90000 }); run("draw")();
+  hb3.getLinearVelocity = () => ({ x: 0, y: 0 }); run("draw")();
+  run("mapMode = true"); run("draw")(); hb3.getLinearVelocity = () => ({ x: 3000, y: 0 }); run("draw")(); hb3.getLinearVelocity = () => ({ x: 1000, y: 0 }); run("draw")();   // an orbit, an escape path, an ellipse through the planet
+  run("mapMode = false");
+} catch (e) { drew2 = false; console.log(e.stack); }
+check(drew2, "the flight view (with streaks, at four zooms, in thin air and in space, and standing still) and the map (ellipse, escape path) all draw");
+check(run("planetTexture")() === run("planetTexture")(), "the planet's surface is painted once and reused");
+
+/* ---- 7. the air coming off the rocket ---- */
+console.log("\n7. Air off the rocket");
+const alive = () => run("(() => { let n = 0; for (let i = 0; i < FX_MAX; i++) if (fx.age[i] < fx.life[i]) n++; return n; })()");
+run("resetAll")(); run("resize")(); run("fx.life.fill(0)");
+const hb4 = run("sim.hull.body"); hb4.pos = { x: 0, y: R + 40000 }; hb4.getLinearVelocity = () => ({ x: 0, y: -2000 });
+for (let i = 0; i < 40; i++) run("updateView")(1 / 60);
+check(alive() > 100 && run("fx.pieces.length") >= 1 && run("fx.pieces[0].glow") > 0.8, `falling at 2 km/s through thin air it sheds a wake (${alive()} bits) and the nose glows (glow ${run("fx.pieces[0].glow").toFixed(2)})`);
+let drew3 = true; try { run("textAt = 0"); run("draw")(); run("mapMode = true"); run("draw")(); run("mapMode = false"); } catch (e) { drew3 = false; console.log(e.stack); }
+check(drew3, "the wake and the glow draw");
+const frozen = alive(); run("paused = true"); for (let i = 0; i < 40; i++) run("updateView")(1 / 60); run("paused = false");
+check(alive() === frozen, "paused: the wake stands still");
+run("setWarp(3)"); run("updateView")(1 / 60);
+check(alive() === 0, "at 10x time warp it is switched off");
+run("setWarp(0)"); run("fx.life.fill(0)"); hb4.getLinearVelocity = () => ({ x: 0, y: -5 }); hb4.pos = { x: 0, y: R + 20 };
+for (let i = 0; i < 40; i++) run("updateView")(1 / 60);
+check(alive() === 0 && run("fx.pieces.length") === 0, "creeping along at 5 m/s it sheds nothing");
+hb4.pos = { x: 0, y: R + 3000 }; hb4.getLinearVelocity = () => ({ x: 0, y: 300 });
+for (let i = 0; i < 40; i++) run("updateView")(1 / 60);
+check(alive() > 50 && run("fx.pieces.length") === 0, "at 300 m/s in thick air it sheds white vapour, with no glow (it is not hot)");
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);
