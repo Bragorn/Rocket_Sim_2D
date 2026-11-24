@@ -69,80 +69,94 @@ function drawStars(sky, phi) {       // they fade in as the sky goes dark, and b
   }
 }
 
-/* ---- the air coming off the rocket ----
-   Every piece of rocket that is moving through air fast enough sheds air from its leading point (the nose, the front edge of a tank) and from its widest points
-   (shoulders, fin and leg tips). Mostly it is mist: soft puffs that start small and thick where they come off, then spread and fade as the rocket leaves them behind
-   (the air is still, so each puff stays where it was shed and the rocket drags a wake out behind it). A few are wind streaks. Fast in thin air it is heated:
-   white mist turns orange, then white-hot, with a glow on the nose. The heat number is only for the look for now:
-   heat = sqrt(air density / ground density) x (speed in km/s)^3, so it follows how hard the air is hit. When parts really heat up, it is the number to use. */
-const FX_MAX = 1500;                 // bits of air alive at once
-const FX_VAPOUR = 50, FX_PLASMA = 100;   // bits shed per second from the leading point: in thick air, and when hot (the shoulders shed 60% of that)
-const FX_STREAKS = 0.25;             // the share of those that are wind streaks (the rest is mist)
-const FX_HEAT_START = 0.12, FX_HEAT_FULL = 0.6;   // the glow starts at this heat number, and is full this much higher
-const FX_COLORS = ["255,255,255", "255,190,110", "255,145,60", "255,236,190"], FX_ALPHA = [0.35, 0.55, 0.7, 0.8], FX_WIDTH = [1, 1.5, 2.2, 3], FX_MIST = [0.2, 0.28, 0.32, 0.36];
-const fx = { head: 0, pieces: [], x: new Float64Array(FX_MAX), y: new Float64Array(FX_MAX), vx: new Float64Array(FX_MAX), vy: new Float64Array(FX_MAX),
-             dx: new Float64Array(FX_MAX), dy: new Float64Array(FX_MAX), len: new Float64Array(FX_MAX), spd: new Float64Array(FX_MAX), size: new Float64Array(FX_MAX),
-             age: new Float64Array(FX_MAX), life: new Float64Array(FX_MAX), hb: new Uint8Array(FX_MAX), kind: new Uint8Array(FX_MAX) };   // kind 0 = mist, 1 = streak
+/* ---- exhaust smoke ----
+   An engine that is burning in air leaves a trail of soft puffs: they start at the nozzle, slow down quickly, grow and fade, and stay where they were left (the air is
+   still), so the rocket draws a smoke trail across the sky. Thick near the ground, gone by about 40 km where the air is too thin to show it. Frozen while paused,
+   and off above 2x time warp. (Air effects on the rocket itself, and heating glow, are not drawn: that comes with real heating.) */
+const FX_MAX = 900;                  // puffs alive at once
+const FX_RATE = 45;                  // puffs per second from each engine at full throttle at the ground
+const FX_ALPHA = 0.30;               // how opaque a fresh puff is
+const fx = { head: 0, x: new Float64Array(FX_MAX), y: new Float64Array(FX_MAX), vx: new Float64Array(FX_MAX), vy: new Float64Array(FX_MAX),
+             size: new Float64Array(FX_MAX), dens: new Float64Array(FX_MAX), age: new Float64Array(FX_MAX), life: new Float64Array(FX_MAX) };
 
-function emitAirBit(wx, wy, dx, dy, speed, glow, lead, side, size) {
-  const i = fx.head; fx.head = (fx.head + 1) % FX_MAX;
-  const streak = Math.random() < FX_STREAKS, lat = side * (0.03 + 0.08 * Math.random()) * speed;     // thrown a little sideways, so the wake widens
-  fx.x[i] = wx + (Math.random() - 0.5) * 0.2; fx.y[i] = wy + (Math.random() - 0.5) * 0.2;
-  fx.vx[i] = -dy * lat; fx.vy[i] = dx * lat;
-  fx.dx[i] = dx; fx.dy[i] = dy; fx.spd[i] = speed; fx.len[i] = speed * 0.03 * (0.6 + 0.8 * Math.random()); fx.size[i] = size;
-  fx.age[i] = 0; fx.kind[i] = streak ? 1 : 0;
-  fx.life[i] = streak ? (0.5 + 0.5 * Math.random()) : (1.0 + 0.8 * Math.random()) * (0.7 + 0.3 * lead);
-  fx.hb[i] = glow < 0.08 ? 0 : glow < 0.4 ? 1 : glow < 0.9 ? 2 : 3;
+function emitSmoke(dts) {
+  for (const part of sim.parts) for (const f of part.forces) {
+    if (f.kind !== "thrust" || f.now <= 0) continue;
+    const n = part.body.getWorldPoint(P(part.ox + f.at[0], part.oy + f.at[1])), dens = Math.sqrt(airDensity(Math.hypot(n.x, n.y) - R) / RHO0);
+    if (dens < 0.03) continue;                                // too thin for smoke
+    const a = part.body.getAngle() + f.angle, ex = Math.sin(a), ey = -Math.cos(a);       // the way the exhaust goes (against the push)
+    const rate = FX_RATE * (f.now / f.vac) * dens * dts;
+    let count = Math.floor(rate) + (Math.random() < rate - Math.floor(rate) ? 1 : 0);
+    while (count-- > 0) {
+      const i = fx.head, sp = 25 + 20 * Math.random(), side = (Math.random() - 0.5) * 8;
+      fx.head = (fx.head + 1) % FX_MAX;
+      fx.x[i] = n.x + ex * f.scale * 0.5 + (Math.random() - 0.5) * 0.3; fx.y[i] = n.y + ey * f.scale * 0.5 + (Math.random() - 0.5) * 0.3;
+      fx.vx[i] = ex * sp - ey * side; fx.vy[i] = ey * sp + ex * side;
+      fx.size[i] = Math.max(0.3, f.scale * 0.5); fx.dens[i] = dens; fx.age[i] = 0; fx.life[i] = 2.5 + 2 * Math.random();
+    }
+  }
 }
 
-function emitAirFx(dts) {
-  fx.pieces = [];
+/* ---- the air trails off the rocket (Pause menu: "Air effects": off, ribbons, haze, both) ----
+   Each piece of rocket moving through air fast enough leaves a trail from three points: its front, and its two widest points (the edges of fins and legs).
+   Every frame a sample of where each point is goes into its trail, and stays where it was left (the air is still), so each trail is the real path the point took
+   through the air. Ribbons draw it as a line that thickens and fades as it ages, haze as soft puffs that grow and fade. Both spread wider with age, and only
+   show in dense air at speed. Nothing is drawn in front of the rocket: the trails only hold places the rocket has already been. */
+let airLook = "off";
+const AIR_LOOKS = ["off", "ribbons", "haze", "both"];
+const TRAIL_LIFE = 1.6;              // seconds a bit of trail lasts
+const trails = {}, bodyIds = new WeakMap();
+let bodyCount = 0;
+function bodyId(b) { let id = bodyIds.get(b); if (id === undefined) { id = ++bodyCount; bodyIds.set(b, id); } return id; }
+
+function updateTrails(dts) {
+  for (const key in trails) {                                   // age what is there
+    const t = trails[key];
+    for (const p of t.pts) p.age += dts;
+    while (t.pts.length && t.pts[0].age > TRAIL_LIFE) t.pts.shift();
+    if (t.pts.length === 0) delete trails[key];
+  }
+  if (airLook === "off") return;
   const bodies = [];
   for (const part of sim.parts) if (bodies.indexOf(part.body) < 0) bodies.push(part.body);
-  for (const body of bodies) {                                  // each piece of rocket on its own body (a dropped stage has its own wake)
+  for (const body of bodies) {                                  // each piece of rocket on its own body
     const v = body.getLinearVelocity(), speed = Math.hypot(v.x, v.y);
     if (speed < 30) continue;
-    const cw = body.getWorldCenter(), rho = airDensity(Math.hypot(cw.x, cw.y) - R), rr = Math.sqrt(rho / RHO0);
-    const air = clamp(rr * 1.5, 0, 1) * clamp((speed - 30) / 120, 0, 1), heat = rr * Math.pow(speed / 1000, 3), glow = clamp((heat - FX_HEAT_START) / (FX_HEAT_FULL - FX_HEAT_START), 0, 1.5);
-    if (air < 0.02 && glow <= 0) continue;
-    const dx = v.x / speed, dy = v.y / speed, tips = [];
-    let best = -Infinity;
+    const cw = body.getWorldCenter(), air = clamp(Math.sqrt(airDensity(Math.hypot(cw.x, cw.y) - R) / RHO0) * 1.5, 0, 1) * clamp((speed - 30) / 120, 0, 1);
+    if (air < 0.02) continue;
+    const dx = v.x / speed, dy = v.y / speed;
+    let tp = -Infinity, tw = null, lo = Infinity, lw = null, hi = -Infinity, hw = null, width = 0.5;
     for (const part of sim.parts) {
       if (part.body !== body) continue;
-      let tp = -Infinity, tw = null, lo = Infinity, lw = null, hi = -Infinity, hw = null;       // the most forward point, and the two widest (left and right of the way it is going)
+      width = Math.max(width, part.def.width || 1);
       for (const q of part.verts) {
         const w = body.getWorldPoint(P(part.ox + q.x, part.oy + q.y)), pr = w.x * dx + w.y * dy, lt = -w.x * dy + w.y * dx;
         if (pr > tp) { tp = pr; tw = w; }
         if (lt < lo) { lo = lt; lw = w; }
         if (lt > hi) { hi = lt; hw = w; }
       }
-      tips.push({ w: tw, pr: tp, left: lw, right: hw, width: part.def.width || 1 });
-      if (tp > best) best = tp;
     }
-    for (const t of tips) {
-      const lead = t.pr > best - 0.3 ? 1 : 0.45, rate = (FX_VAPOUR * air + FX_PLASMA * Math.min(1, glow)) * lead * dts, size = Math.max(0.3, t.width * 0.35);
-      const shed = function (w, share, side) {
-        const n = rate * share;
-        let count = Math.floor(n) + (Math.random() < n - Math.floor(n) ? 1 : 0);
-        while (count-- > 0) emitAirBit(w.x, w.y, dx, dy, speed, glow, lead, side, size);
-      };
-      shed(t.w, 1, (Math.random() < 0.5 ? -1 : 1) * 0.5);
-      shed(t.left, 0.6, -1); shed(t.right, 0.6, 1);
-      if (lead === 1 && glow > 0.03) fx.pieces.push({ x: t.w.x, y: t.w.y, dx: dx, dy: dy, glow: glow, w: t.width });
-    }
+    const id = bodyId(body);
+    const add = function (k, w, side, s) {
+      const key = id + ":" + k, t = trails[key] || (trails[key] = { pts: [], side: side, w: width });
+      t.w = width; t.pts.push({ x: w.x, y: w.y, age: 0, dx: dx, dy: dy, s: s });
+      if (t.pts.length > 150) t.pts.shift();
+    };
+    add(0, tw, 0, air); add(1, lw, -1, air * 0.6); add(2, hw, 1, air * 0.6);
   }
 }
 
-function updateAirFx(dt) {           // called every frame (from updateView). Frozen while paused, and off at high time warp (the wake would be in dots)
+function updateAirFx(dt) {           // called every frame (from updateView): the exhaust smoke and the air trails. Frozen while paused, off above 2x time warp
   if (paused || !sim) return;
   const w = typeof warp !== "undefined" ? warp : 1;
-  if (w > 2) { fx.life.fill(0); fx.pieces = []; return; }
-  const dts = dt * w, k = Math.exp(-3 * dts);
+  if (w > 2) { fx.life.fill(0); for (const key in trails) delete trails[key]; return; }
+  const dts = dt * w, k = Math.exp(-2.5 * dts);
   for (let i = 0; i < FX_MAX; i++) {
     if (!(fx.age[i] < fx.life[i])) continue;
     fx.x[i] += fx.vx[i] * dts; fx.y[i] += fx.vy[i] * dts; fx.vx[i] *= k; fx.vy[i] *= k; fx.age[i] += dts;
   }
-  emitAirFx(dts);
+  emitSmoke(dts);
+  updateTrails(dts);
 }
 
 function fxScreen(cam, x, y, out) {  // where a world point is on the flight view
@@ -150,126 +164,112 @@ function fxScreen(cam, x, y, out) {  // where a world point is on the flight vie
   out[1] = cam.hy - ((x * cam.ux + y * cam.uy - R) - cam.alt) * cam.Z;
 }
 
-const fxSprites = [];
-function fxSprite(hb) {              // a soft round puff, painted once for each heat colour
-  if (fxSprites[hb]) return fxSprites[hb];
+let smokeSprite = null;
+function smokePuff() {               // a soft round puff, painted once
+  if (smokeSprite) return smokeSprite;
   const cv2 = document.createElement("canvas");
   cv2.width = 64; cv2.height = 64;
   const k = cv2.getContext("2d"), g = k.createRadialGradient(32, 32, 0, 32, 32, 32);
-  g.addColorStop(0, "rgba(" + FX_COLORS[hb] + ",1)"); g.addColorStop(0.5, "rgba(" + FX_COLORS[hb] + ",0.4)"); g.addColorStop(1, "rgba(" + FX_COLORS[hb] + ",0)");
+  g.addColorStop(0, "rgba(230,230,235,1)"); g.addColorStop(0.5, "rgba(230,230,235,0.4)"); g.addColorStop(1, "rgba(230,230,235,0)");
   k.fillStyle = g; k.fillRect(0, 0, 64, 64);
-  fxSprites[hb] = cv2;
+  smokeSprite = cv2;
   return cv2;
 }
 
-function drawAirTrails(cam) {        // the wake: mist that thickens where it is shed and spreads as it fades, with a few wind streaks. Drawn behind the rocket
-  const sp = [0, 0], sq = [0, 0];
-  for (let pass = 0; pass < 2; pass++) {                        // white mist first, then the hot mist added on top
-    c.globalCompositeOperation = pass === 0 ? "source-over" : "lighter";
-    for (let i = 0; i < FX_MAX; i++) {
-      if (!(fx.age[i] < fx.life[i]) || fx.kind[i] !== 0 || (pass === 0) !== (fx.hb[i] === 0)) continue;
-      fxScreen(cam, fx.x[i], fx.y[i], sp);
-      const t = fx.age[i] / fx.life[i], rPx = Math.max(2, fx.size[i] * (0.4 + 2.2 * t) * cam.Z);
-      if (sp[0] < -rPx || sp[0] > W + rPx || sp[1] < -rPx || sp[1] > Hh + rPx) continue;
-      c.globalAlpha = FX_MIST[fx.hb[i]] * Math.pow(1 - t, 1.5);
-      c.drawImage(fxSprite(fx.hb[i]), sp[0] - rPx, sp[1] - rPx, 2 * rPx, 2 * rPx);
-    }
+function drawSmoke(cam) {            // behind the rocket
+  const sp = [0, 0];
+  for (let i = 0; i < FX_MAX; i++) {
+    if (!(fx.age[i] < fx.life[i])) continue;
+    fxScreen(cam, fx.x[i], fx.y[i], sp);
+    const t = fx.age[i] / fx.life[i], rPx = Math.max(2, fx.size[i] * (0.5 + 3 * t) * cam.Z);
+    if (sp[0] < -rPx || sp[0] > W + rPx || sp[1] < -rPx || sp[1] > Hh + rPx) continue;
+    c.globalAlpha = FX_ALPHA * fx.dens[i] * Math.pow(1 - t, 1.5);
+    c.drawImage(smokePuff(), sp[0] - rPx, sp[1] - rPx, 2 * rPx, 2 * rPx);
   }
-  c.globalAlpha = 1; c.lineCap = "round";
-  for (let hb = 0; hb < 4; hb++) {                              // wind streaks, in groups of the same colour and age so each group is one stroke
-    c.globalCompositeOperation = hb >= 1 ? "lighter" : "source-over";
-    c.lineWidth = FX_WIDTH[hb];
-    for (let ab = 0; ab < 4; ab++) {
-      c.strokeStyle = "rgba(" + FX_COLORS[hb] + "," + (FX_ALPHA[hb] * Math.pow(1 - (ab + 0.5) / 4, 1.3)).toFixed(3) + ")";
-      c.beginPath();
-      let any = false;
-      for (let i = 0; i < FX_MAX; i++) {
-        if (!(fx.age[i] < fx.life[i]) || fx.kind[i] !== 1 || fx.hb[i] !== hb || Math.min(3, Math.floor(4 * fx.age[i] / fx.life[i])) !== ab) continue;
-        fxScreen(cam, fx.x[i], fx.y[i], sp);
-        if (sp[0] < -60 || sp[0] > W + 60 || sp[1] < -60 || sp[1] > Hh + 60) continue;
-        const L = Math.min(fx.len[i], fx.spd[i] * fx.age[i], 40 / cam.Z);          // never longer than the way it has been left behind, so it never reaches in front of where it was shed
-        fxScreen(cam, fx.x[i] + fx.dx[i] * L, fx.y[i] + fx.dy[i] * L, sq);
-        c.moveTo(sp[0], sp[1]); c.lineTo(sq[0], sq[1]); any = true;
-      }
-      if (any) c.stroke();
-    }
-  }
-  c.globalCompositeOperation = "source-over"; c.lineCap = "butt";
+  c.globalAlpha = 1;
 }
 
-/* The engine's plume (drawn in the rocket's own frame, so it stays on the nozzle): an orange outer flame, a yellow body, a white core, thin streaks flickering along it,
-   and bright "Mach diamonds" along the middle that show more the thinner the air (the exhaust spreads out wider than the air round it). */
-function drawPlume(part, f, T) {
-  const a = part.body.getAngle() + f.angle, dx = -Math.sin(a), dy = Math.cos(a);           // the way the engine pushes; the plume goes the other way
-  const n = part.body.getWorldPoint(P(part.ox + f.at[0], part.oy + f.at[1])), pf = clamp(sim.rho / RHO0, 0, 1);
-  const L = (1.2 + 4 * f.now / f.vac) * f.scale * (0.85 + Math.random() * 0.3) * (1 + 0.5 * (1 - pf)), wd = 0.28 * f.scale * (1 + 0.8 * (1 - pf));
-  const at = function (s, u) { return T({ x: n.x - dx * s + dy * u, y: n.y - dy * s - dx * u }); };     // s along the plume, u across it
-  const tri = function (len, wide, style) {
-    const p1 = at(0, wide), p2 = at(0, -wide), tip = at(len, 0);
-    c.fillStyle = style; c.beginPath(); c.moveTo(p1[0], p1[1]); c.lineTo(tip[0], tip[1]); c.lineTo(p2[0], p2[1]); c.closePath(); c.fill();
-  };
-  tri(L, wd * 1.35, "rgba(255,120,40,0.55)");
-  tri(L * 0.82, wd, "rgba(241,196,15,0.9)");
-  tri(L * 0.5, wd * 0.42, "rgba(255,250,225,0.95)");
-  c.globalCompositeOperation = "lighter";
-  c.lineWidth = 1; c.strokeStyle = "rgba(255,215,140,0.55)"; c.beginPath();
-  for (let k = 0; k < 9; k++) {                                                            // streaks that flicker (new ones every frame)
-    const u = (Math.random() * 2 - 1) * wd * 0.8, s0 = Math.random() * L * 0.15, s1 = L * (0.45 + 0.6 * Math.random()) * (1 - 0.3 * Math.abs(u) / wd);
-    const p1 = at(s0, u), p2 = at(s1, u * 0.85);
-    c.moveTo(p1[0], p1[1]); c.lineTo(p2[0], p2[1]);
+function drawAirTrails(cam) {        // behind the rocket
+  if (airLook === "off") return;
+  const sp = [0, 0], sq = [0, 0], Z = cam.Z, ribbons = airLook === "ribbons" || airLook === "both", haze = airLook === "haze" || airLook === "both";
+  for (const key in trails) {
+    const t = trails[key], pts = t.pts;
+    if (haze) {
+      for (const p of pts) {
+        const a = p.age / TRAIL_LIFE, o = t.side * t.w * (0.15 + 1.2 * a), r = Math.max(2, t.w * (0.3 + 2 * a) * Z);
+        fxScreen(cam, p.x - p.dy * o, p.y + p.dx * o, sp);
+        if (sp[0] < -r || sp[0] > W + r || sp[1] < -r || sp[1] > Hh + r) continue;
+        c.globalAlpha = 0.16 * p.s * Math.pow(1 - a, 1.5);
+        c.drawImage(smokePuff(), sp[0] - r, sp[1] - r, 2 * r, 2 * r);
+      }
+      c.globalAlpha = 1;
+    }
+    if (ribbons) {
+      c.lineCap = "round";
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const p0 = pts[i], p1 = pts[i + 1], a = p0.age / TRAIL_LIFE;
+        const o0 = t.side * t.w * (0.15 + 1.2 * a), o1 = t.side * t.w * (0.15 + 1.2 * p1.age / TRAIL_LIFE);
+        fxScreen(cam, p0.x - p0.dy * o0, p0.y + p0.dx * o0, sp); fxScreen(cam, p1.x - p1.dy * o1, p1.y + p1.dx * o1, sq);
+        if (sp[0] < -60 || sp[0] > W + 60 || sp[1] < -60 || sp[1] > Hh + 60) continue;
+        c.lineWidth = 1.2 + 4 * a; c.strokeStyle = "rgba(255,255,255," + (0.5 * p0.s * Math.pow(1 - a, 1.3)).toFixed(3) + ")";
+        c.beginPath(); c.moveTo(sp[0], sp[1]); c.lineTo(sq[0], sq[1]); c.stroke();
+      }
+      c.lineCap = "butt";
+    }
   }
-  c.stroke();
-  const thin = 0.15 + 0.85 * (1 - pf);                                                     // diamonds show in thin air
-  for (let k = 1; k <= 4; k++) {
-    const s = L * 0.2 * k, w = wd * 0.6 * (1 - 0.17 * k), h = L * 0.05, al = thin * (0.75 - 0.15 * k);
-    if (al <= 0.02) continue;
+}
+
+/* A part's own colour, turning green, yellow, orange and red as the last impact on it nears what it can take. */
+function stressColor(hex, s) {
+  const base = [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+  const stops = [[0.0, [60, 200, 90]], [0.4, [241, 196, 15]], [0.75, [255, 140, 30]], [1.0, [255, 50, 40]]], x = clamp(s, 0, 1);
+  let hue = stops[stops.length - 1][1];
+  for (let i = 0; i + 1 < stops.length; i++) if (x <= stops[i + 1][0]) { const u = (x - stops[i][0]) / (stops[i + 1][0] - stops[i][0]); hue = stops[i][1].map(function (v, k) { return v + (stops[i + 1][1][k] - v) * u; }); break; }
+  const m = clamp(s / 0.2, 0, 1);
+  return "rgb(" + base.map(function (v, k) { return Math.round(v + (hue[k] - v) * m); }).join(",") + ")";
+}
+
+/* The engine's flame, drawn in the rocket's own frame so it stays on the nozzle. Its shape comes from the pressure of the exhaust against the air round it:
+   exhaust pressure = EXIT_ATM x (how hard the engine is throttled), air pressure thins with height. Much higher than the air: the exhaust spreads out and
+   swells and pinches along its length (the pinches are where the Mach diamonds are, brightest where the pressures are far apart). The same as the air: a clean,
+   straight flame, no diamonds. Lower than the air (low down): squeezed narrower. Nothing is placed by hand: the pinch positions come from the same formula. */
+const EXIT_ATM = 0.5;                // nozzle exit pressure at full throttle, as a share of sea-level air pressure (so the flame is straightest about 9 km up)
+function drawPlume(part, f, T) {
+  const a = part.body.getAngle() + f.angle, dx = -Math.sin(a), dy = Math.cos(a);           // the way the engine pushes; the flame goes the other way
+  const n = part.body.getWorldPoint(P(part.ox + f.at[0], part.oy + f.at[1])), pf = clamp(sim.rho / RHO0, 0.0005, 1);
+  const Dn = f.scale, ratio = EXIT_ATM * clamp(f.level || 0, 0.05, 1) / pf, grow = Math.pow(clamp(ratio, 0.3, 60), 0.25);
+  const amp = clamp(Math.abs(Math.log(ratio)), 0, 3) * 0.1, lam = 1.4 * Dn * grow, phase = (Math.random() - 0.5) * 0.4;
+  const L = (1.2 + 4 * f.now / f.vac) * Dn * (0.92 + Math.random() * 0.16) * clamp(0.85 + 0.2 * grow, 0.85, 2.2);
+  const at = function (s, u) { return T({ x: n.x - dx * s + dy * u, y: n.y - dy * s - dx * u }); };     // s along the flame, u across it
+  const half = function (s, len) {                                                          // half the width of the flame, s along it
+    const env = 1 + (grow - 1) * (1 - Math.exp(-s / (1.2 * Dn))), osc = 1 + amp * Math.cos(6.2832 * s / lam + phase) * Math.exp(-s / (4 * Dn));
+    return 0.45 * Dn * env * osc * Math.sqrt(Math.max(0, 1 - Math.pow(s / len, 1.6)));
+  };
+  const shape = function (len, k) {
+    c.beginPath();
+    for (let i = 0; i <= 32; i++) { const s = len * i / 32, p = at(s, half(s, len) * k); if (i === 0) c.moveTo(p[0], p[1]); else c.lineTo(p[0], p[1]); }
+    for (let i = 32; i >= 0; i--) { const s = len * i / 32, p = at(s, -half(s, len) * k); c.lineTo(p[0], p[1]); }
+    c.closePath();
+  };
+  const s0 = at(0, 0), s1 = at(L, 0);
+  let g = c.createLinearGradient(s0[0], s0[1], s1[0], s1[1]);
+  g.addColorStop(0, "rgba(255,235,170,0.95)"); g.addColorStop(0.35, "rgba(255,150,50,0.8)"); g.addColorStop(1, "rgba(255,90,30,0)");
+  c.fillStyle = g; shape(L, 1.25); c.fill();
+  g = c.createLinearGradient(s0[0], s0[1], s1[0], s1[1]);
+  g.addColorStop(0, "rgba(255,255,240,1)"); g.addColorStop(0.5, "rgba(255,230,140,0.7)"); g.addColorStop(1, "rgba(255,200,80,0)");
+  c.fillStyle = g; shape(L * 0.62, 0.5); c.fill();
+  c.globalCompositeOperation = "lighter";                                                   // bright where the flame pinches
+  for (let m = 0; m < 12; m++) {
+    const s = (Math.PI * (2 * m + 1) - phase) * lam / 6.2832;
+    if (s > 0.8 * L) break;
+    if (s < 0.25 * Dn) continue;
+    const w = half(s, L) * 0.9, h = lam * 0.14, al = clamp(amp * 6, 0, 0.85) * Math.pow(1 - s / L, 0.8);
+    if (al < 0.03) continue;
     const p1 = at(s - h, 0), p2 = at(s, w), p3 = at(s + h, 0), p4 = at(s, -w);
     c.fillStyle = "rgba(255,250,225," + al.toFixed(2) + ")"; c.beginPath();
     c.moveTo(p1[0], p1[1]); c.lineTo(p2[0], p2[1]); c.lineTo(p3[0], p3[1]); c.lineTo(p4[0], p4[1]); c.closePath(); c.fill();
   }
   c.globalCompositeOperation = "source-over";
-}
-
-function drawPlasmaGlow(cam) {       // the hot glow on the leading point of anything moving fast enough, drawn over the rocket
-  if (fx.pieces.length === 0) return;
-  const sp = [0, 0], sq = [0, 0];
-  c.globalCompositeOperation = "lighter";
-  for (const g of fx.pieces) {
-    fxScreen(cam, g.x, g.y, sp); fxScreen(cam, g.x + g.dx, g.y + g.dy, sq);
-    let ax = sq[0] - sp[0], ay = sq[1] - sp[1];
-    const al = Math.hypot(ax, ay) || 1; ax /= al; ay /= al;
-    const rad = Math.max(7, g.w * cam.Z * 0.9) * (0.8 + 0.5 * Math.min(g.glow, 1.5)), a = Math.min(1, g.glow) * 0.8;
-    c.save(); c.translate(sp[0] + ax * rad * 0.3, sp[1] + ay * rad * 0.3); c.rotate(Math.atan2(ay, ax)); c.scale(1.5, 1);
-    const gr = c.createRadialGradient(0, 0, 0, 0, 0, rad);
-    gr.addColorStop(0, "rgba(255,238,190," + a.toFixed(2) + ")"); gr.addColorStop(0.45, "rgba(255,160,70," + (a * 0.55).toFixed(2) + ")"); gr.addColorStop(1, "rgba(255,80,30,0)");
-    c.fillStyle = gr; c.beginPath(); c.arc(0, 0, rad, 0, 6.2832); c.fill(); c.restore();
-  }
-  c.globalCompositeOperation = "source-over";
-}
-
-let planetTex = null;
-function planetTexture() {           // the planet's surface, painted once and reused: ocean, a few continents (one on the launch pad's coast, at the top), thin cloud
-  if (planetTex) return planetTex;
-  const N = 512, h = N / 2, cv2 = document.createElement("canvas");
-  cv2.width = N; cv2.height = N;
-  const k = cv2.getContext("2d");
-  k.fillStyle = "#1d4f80"; k.fillRect(0, 0, N, N);
-  const og = k.createRadialGradient(h, h, 0, h, h, h); og.addColorStop(0, "rgba(50,125,185,0.5)"); og.addColorStop(1, "rgba(10,40,80,0.45)");
-  k.fillStyle = og; k.fillRect(0, 0, N, N);
-  const lands = ["#3e7a3a", "#4a8a40", "#6a9a4a", "#9a9058"];
-  const blob = function (cx, cy, size, seed) {               // a lumpy island made of overlapping circles
-    for (let i = 0; i < 14; i++) {
-      const a = hash3(seed, i, 11) * 6.2832, d = hash3(seed, i, 12) * size * 0.8, r = size * (0.25 + 0.4 * hash3(seed, i, 13));
-      k.fillStyle = lands[Math.floor(hash3(seed, i, 14) * lands.length)];
-      k.beginPath(); k.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.7, r, 0, 6.2832); k.fill();
-    }
-  };
-  blob(h, N * 0.07, N * 0.16, 1);
-  for (let s = 2; s < 11; s++) { const a = hash3(s, 0, 15) * 6.2832, d = (0.2 + 0.65 * hash3(s, 1, 15)) * h; blob(h + Math.cos(a) * d, h + Math.sin(a) * d, N * (0.07 + 0.1 * hash3(s, 2, 15)), s); }
-  k.fillStyle = "rgba(255,255,255,0.13)";
-  for (let s = 0; s < 40; s++) { k.beginPath(); k.ellipse(hash3(s, 0, 16) * N, hash3(s, 1, 16) * N, N * (0.03 + 0.06 * hash3(s, 2, 16)), N * 0.012, hash3(s, 3, 16) * 3.14, 0, 6.2832); k.fill(); }
-  planetTex = cv2;
-  return cv2;
 }
 
 function drawMapStars() {            // fixed on the screen: they are very far away
@@ -310,7 +310,8 @@ function drawFlight(alt, phi) {
   }
 
   const cam = { ux: ux, uy: uy, ex: ex, ey: ey, hy: Hh * HOR, alt: alt, Z: S };
-  drawAirTrails(cam);                                        // the air shed by the rocket, behind it
+  drawSmoke(cam);                                            // the exhaust smoke left in the air, behind the rocket
+  drawAirTrails(cam);                                        // the air trails off the rocket (pause menu: Air effects)
 
   for (const part of sim.parts) for (const f of part.forces) {   // the plume of every engine that is burning
     if (f.kind !== "thrust" || f.now <= 0) continue;
@@ -328,14 +329,13 @@ function drawFlight(alt, phi) {
     return;
   }
   for (const part of sim.parts) {                            // the parts (each shape is placed on its body: ox, oy is where the part sits there)
-    c.fillStyle = part.color; c.beginPath();
+    c.fillStyle = part.stress > 0.02 ? stressColor(part.color, part.stress) : part.color; c.beginPath();
     part.verts.forEach(function (q, i) {
       const s = T(part.body.getWorldPoint(P(part.ox + q.x, part.oy + q.y)));
       if (i === 0) c.moveTo(s[0], s[1]); else c.lineTo(s[0], s[1]);
     });
     c.closePath(); c.fill();
   }
-  drawPlasmaGlow(cam);                                       // and the glow on the nose
 }
 
 function drawMap(o) {                                        // the map: centred on the rocket, not rotating, planet and orbit drawn round it
@@ -347,14 +347,8 @@ function drawMap(o) {                                        // the map: centred
   const ag = c.createRadialGradient(mid[0], mid[1], rad, mid[0], mid[1], rad + th);
   ag.addColorStop(0, "rgba(130,190,255,0.6)"); ag.addColorStop(0.3, "rgba(100,165,255,0.25)"); ag.addColorStop(1, "rgba(80,140,255,0)");
   c.fillStyle = ag; c.beginPath(); c.arc(mid[0], mid[1], rad + th, 0, 6.2832); c.fill();
-  c.save();                                                  // the planet: its painted surface, lit from the left, dark on the far side
-  c.beginPath(); c.arc(mid[0], mid[1], rad, 0, 6.2832); c.clip();
-  c.drawImage(planetTexture(), mid[0] - rad, mid[1] - rad, 2 * rad, 2 * rad);
-  const sg = c.createLinearGradient(mid[0] - rad, mid[1], mid[0] + rad, mid[1]);
-  sg.addColorStop(0, "rgba(255,255,255,0.12)"); sg.addColorStop(0.45, "rgba(0,0,0,0)"); sg.addColorStop(1, "rgba(0,0,10,0.55)");
-  c.fillStyle = sg; c.fillRect(mid[0] - rad, mid[1] - rad, 2 * rad, 2 * rad);
-  c.restore();
-  c.strokeStyle = "rgba(170,215,255,0.45)"; c.lineWidth = 1; c.beginPath(); c.arc(mid[0], mid[1], rad, 0, 6.2832); c.stroke();
+  c.fillStyle = "#2f4a25"; c.strokeStyle = "#6f9a52"; c.lineWidth = 2;      // the planet
+  c.beginPath(); c.arc(mid[0], mid[1], rad, 0, 6.2832); c.fill(); c.stroke();
 
   const pad = M(0, R);                                       // the launch pad
   c.fillStyle = "#e8eef2"; c.fillRect(pad[0] - 2, pad[1] - 2, 4, 4);

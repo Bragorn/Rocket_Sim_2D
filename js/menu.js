@@ -91,6 +91,7 @@ function panelMain(box) {
   }
   mbutton("Flight report", function () { showPanel("report"); });
   mbutton("Controls", function () { showPanel("controls"); });
+  mbutton("Air effects: " + airLook, function () { airLook = AIR_LOOKS[(AIR_LOOKS.indexOf(airLook) + 1) % AIR_LOOKS.length]; showPanel("main"); });
   mbutton("Performance readout: " + (showPerf ? "on" : "off"), function () { showPerf = !showPerf; showPanel("main"); });
 }
 

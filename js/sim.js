@@ -99,6 +99,8 @@ function fireStage() {               // the next row of the staging list: engine
    If it is more than the part's own capacity (rules.js, impactCapacity) the part breaks off, and only that part: its link is cut, so it
    (and anything that hung only from it) becomes a separate piece. Nothing else is checked, so one break never sets off another.
    The first part, the hull, has no link and cannot break off. Dropped pieces do not break. */
+const STRESS_DECAY = 0.985;          // per step: the colour of a hit part fades back over a couple of seconds
+
 function breakPart(p) {
   const jt = p.joint;
   if (!jt) return false;
@@ -127,8 +129,10 @@ function checkImpacts() {
   for (const p of sim.parts) {
     const J = p.hitJ, vc = p.hitV;
     p.hitJ = 0; p.hitV = 0;
+    p.stress *= STRESS_DECAY;                         // how hard the part was hit, as a share of what it can take: jumps up on an impact, eases back down (render.js tints the part with it)
     if (J <= 0 || p.debris || !p.joint || vc < MIN_IMPACT_SPEED) continue;
     const E = 0.5 * J * vc, cap = impactCapacity(p.def);
+    if (cap > 0 && E / cap > p.stress) p.stress = E / cap;
     if (E > cap) hits.push({ part: p, E: E, cap: cap, v: vc });
   }
   if (hits.length === 0) return;

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rocket Sim - looks lab</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #101418; color: #e8eef2; font: 13px/1.4 monospace; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- Plain scripts, loaded in this order. No modules, so it opens by double-clicking this file. -->
+<script src="js/planck.min.js"></script>  <!-- the physics engine -->
+<script src="js/util.js"></script>        <!-- log, small helpers, planck check -->
+<script src="js/settings.js"></script>    <!-- every number you tune -->
+<script src="js/rules.js"></script>       <!-- the rules every part follows -->
+<script src="js/parts.js"></script>       <!-- part types: sizes, shapes and forces -->
+<script src="js/design.js"></script>      <!-- a rocket design (a tree of parts), checking it, saving it, and assembling it into ROCKET -->
+<script src="js/controls.js"></script>    <!-- throttle, steering, damping: the ONE place the sim reads controls from -->
+<script src="js/aero.js"></script>        <!-- air density, drag, fins, stability -->
+<script src="js/telemetry.js"></script>   <!-- the flight recorder: samples, events, summary, CSV -->
+<script src="js/world.js"></script>       <!-- builds the planet, bodies, joints, gravity -->
+<script src="js/sim.js"></script>         <!-- one physics step -->
+<script src="js/orbit.js"></script>       <!-- apoapsis / periapsis / period maths -->
+<script src="js/render.js"></script>      <!-- flight view, map view, readouts, bottom bar -->
+<script src="js/menu.js"></script>        <!-- the pause menu (Esc) and its cards -->
+<script src="js/report.js"></script>      <!-- the flight report: graphs, events, export -->
+<script src="js/autopilot.js"></script>   <!-- holds the rocket pointing a way, by steering through the real controls -->
+<script src="js/landing.js"></script>     <!-- the landing program: lights the engine and throttles to touch down gently -->
+<script src="js/lab.js"></script>         <!-- the lab: the same drawing code, a rocket flown past by sliders -->
+</body>
+</html>

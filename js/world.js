@@ -87,7 +87,7 @@ function buildWorld() {
     const c = vertCentroid(verts);
     const part = { def: def, name: def.name, color: def.color, body: body, fixture: fixture, verts: verts, local: local, ox: ox, oy: oy, lx: ox + c[0], ly: oy + c[1],
                    idx: parts.length, active: false, debris: false, group: 0, zone: null, joint: null, tank: null,
-                   hitV: 0, hitJ: 0,                                       // ground contact this step: closing speed (m/s) and impulse (N*s), see onPreSolve
+                   hitV: 0, hitJ: 0, stress: 0,                                       // ground contact this step: closing speed (m/s) and impulse (N*s), see onPreSolve
                    forces: (def.forces || []).map(function (f) { return Object.assign({ now: 0, angle: 0 }, f); }) };   // now = force this step, angle = gimbal
     for (const f of part.forces) prepareAero(part, f);
     if (def.fuel) { const t = { part: part, area: polyArea(verts), dry: def.fuel.dry, full: def.fuel.full, fuel: def.fuel.full }; tanks.push(t); part.tank = t; }

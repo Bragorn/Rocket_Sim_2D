@@ -153,7 +153,7 @@ const buttons = () => run("menuUi.box.children").filter(c => c.tag === "button")
 const label = (b) => b.textContent;
 run("openMenu")();
 check(run("paused") === true, "opening the menu pauses the sim");
-check(buttons().map(label).join("|") === "Resume|Revert to launch|Back to builder|Recover vessel|Flight report|Controls|Performance readout: off", "the menu has Resume, Revert, Back to builder, Recover, Flight report, Controls and the performance switch");
+check(buttons().map(label).join("|") === "Resume|Revert to launch|Back to builder|Recover vessel|Flight report|Controls|Air effects: off|Performance readout: off", "the menu has Resume, Revert, Back to builder, Recover, Flight report, Controls, the air effects switch and the performance switch");
 check(buttons().find(b => label(b) === "Recover vessel").disabled === true, "Recover is off on the pad, and says why");
 const stepsBefore = run("sim.t"); run("controls").throttle = 1; run("sim.t = sim.t");       // (the loop is not running here; main.js skips stepping while paused)
 run("closeMenu")(); check(run("paused") === false, "closing the menu resumes");
@@ -224,27 +224,25 @@ try {
   run("mapMode = false");
 } catch (e) { drew2 = false; console.log(e.stack); }
 check(drew2, "the flight view (with streaks, at four zooms, in thin air and in space, and standing still) and the map (ellipse, escape path) all draw");
-check(run("planetTexture")() === run("planetTexture")(), "the planet's surface is painted once and reused");
 
-/* ---- 7. the air coming off the rocket ---- */
-console.log("\n7. Air off the rocket");
+/* ---- 7. exhaust smoke ---- */
+console.log("\n7. Exhaust smoke");
 const alive = () => run("(() => { let n = 0; for (let i = 0; i < FX_MAX; i++) if (fx.age[i] < fx.life[i]) n++; return n; })()");
-run("resetAll")(); run("resize")(); run("fx.life.fill(0)");
-const hb4 = run("sim.hull.body"); hb4.pos = { x: 0, y: R + 40000 }; hb4.getLinearVelocity = () => ({ x: 0, y: -2000 });
-for (let i = 0; i < 40; i++) run("updateView")(1 / 60);
-check(alive() > 100 && run("fx.pieces.length") >= 1 && run("fx.pieces[0].glow") > 0.8, `falling at 2 km/s through thin air it sheds a wake (${alive()} bits) and the nose glows (glow ${run("fx.pieces[0].glow").toFixed(2)})`);
+run("resetAll")(); run("resize")(); run("fx.life.fill(0)"); run("fireStage")(); run("controls").throttle = 1; step(20);
+for (let i = 0; i < 60; i++) run("updateView")(1 / 60);
+check(alive() > 20, `an engine burning at the ground leaves smoke (${alive()} puffs)`);
 let drew3 = true; try { run("textAt = 0"); run("draw")(); run("mapMode = true"); run("draw")(); run("mapMode = false"); } catch (e) { drew3 = false; console.log(e.stack); }
-check(drew3, "the wake and the glow draw");
+check(drew3, "the smoke, the flame and the plain planet draw");
 const frozen = alive(); run("paused = true"); for (let i = 0; i < 40; i++) run("updateView")(1 / 60); run("paused = false");
-check(alive() === frozen, "paused: the wake stands still");
+check(alive() === frozen, "paused: the smoke stands still");
 run("setWarp(3)"); run("updateView")(1 / 60);
 check(alive() === 0, "at 10x time warp it is switched off");
-run("setWarp(0)"); run("fx.life.fill(0)"); hb4.getLinearVelocity = () => ({ x: 0, y: -5 }); hb4.pos = { x: 0, y: R + 20 };
-for (let i = 0; i < 40; i++) run("updateView")(1 / 60);
-check(alive() === 0 && run("fx.pieces.length") === 0, "creeping along at 5 m/s it sheds nothing");
-hb4.pos = { x: 0, y: R + 3000 }; hb4.getLinearVelocity = () => ({ x: 0, y: 300 });
-for (let i = 0; i < 40; i++) run("updateView")(1 / 60);
-check(alive() > 50 && run("fx.pieces.length") === 0, "at 300 m/s in thick air it sheds white vapour, with no glow (it is not hot)");
+run("setWarp(0)"); run("controls").throttle = 0; step(5); run("fx.life.fill(0)");
+for (let i = 0; i < 60; i++) run("updateView")(1 / 60);
+check(alive() === 0, "engine off: no smoke");
+const hb4 = run("sim.hull.body"); hb4.pos = { x: 0, y: R + 100000 }; run("controls").throttle = 1; step(5);
+for (let i = 0; i < 60; i++) run("updateView")(1 / 60);
+check(alive() === 0, "100 km up the air is too thin to show smoke");
 
 console.log("\n" + (failures === 0 ? "ALL CHECKS PASSED" : failures + " CHECK(S) FAILED"));
 process.exit(failures === 0 ? 0 : 1);
