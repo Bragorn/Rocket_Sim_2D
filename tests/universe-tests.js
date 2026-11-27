@@ -16,7 +16,11 @@ const root = path.join(__dirname, "..");
 const planck = require("./fake-planck");   // the shared stand-in for the physics engine (design.js builds a rocket when it loads)
 const ctx = { console, Math, Object, Array, Number, JSON, Date, Error, isFinite, parseInt, String, encodeURIComponent, decodeURIComponent, document: { body: {} }, window: { addEventListener() {} }, planck };
 vm.createContext(ctx);
-for (const f of ["util", "settings", "rules", "parts", "design", "universe"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
+for (const f of ["util", "settings", "rules", "parts", "design", "universe"]) {
+  let src = fs.readFileSync(path.join(root, "js", f + ".js"), "utf8");
+  if (f === "settings") src = src.replace("const MAX_VESSELS = 200;", "const MAX_VESSELS = 4;");     // a small limit, so it can be reached in a test
+  vm.runInContext(src, ctx, { filename: f + ".js" });
+}
 const run = (e) => vm.runInContext(e, ctx);
 ctx.log = () => {};
 let failures = 0;
@@ -94,11 +98,31 @@ check(second.id === null && /pad is not clear/.test(second.problem) && /Beta/.te
 u = removeVessel(u, "v2").universe;
 check(fn("padIsClear")(u) && addVessel(u, DESIGN, "Gamma").id === "v3", "recovering the rocket on the pad clears it: a new one can go on");
 u = twoVessels();
+u = updateVessel(u, "v2", { status: "landed", state: stateOf({ pos: { x: 0, y: 600005 }, vel: { x: 0, y: 0 } }) }).universe;
+check(fn("padIsClear")(u) && addVessel(u, DESIGN, "Gamma").id === "v3", "flying the rocket off the pad and putting it down elsewhere clears the pad");
+u = twoVessels();
 u = updateVessel(u, "v2", { status: "flying", state: stateOf({ pos: { x: 0, y: 600100 }, vel: { x: 0, y: 40 } }) }).universe;
-check(fn("padIsClear")(u) && addVessel(u, DESIGN, "Gamma").id === "v3", "flying the rocket off the pad (status changes from pad) clears it too");
+const midair = addVessel(u, DESIGN, "Gamma");
+check(fn("padIsClear")(u) && midair.id === null && /Beta was left mid-flight/.test(midair.problem) && midair.universe === u, "off the pad but still mid-flight: no new launch until it is brought down, into orbit, or scrapped");
 u = twoVessels();
 u.vessels.push(Object.assign(clone(u.vessels[0]), { id: "v3", status: "pad", state: null })); u.nextId = 4;
 check(problemsOf(u).some((m) => /more than one vessel is on the pad/.test(m)), "a universe with two vessels on the pad fails the shape check");
+
+/* ---- the limits on launching ---- */
+console.log("\n2b. Launch limits and the revert flag");
+u = fn("universeNew")();
+check(addVessel(u, DESIGN, "A").universe.vessels[0].revert === true, "a newly launched vessel can be reverted");
+check(updateVessel(addVessel(u, DESIGN, "A").universe, "v1", { revert: false }).universe.vessels[0].revert === false, "the revert flag can be switched off (when the vessel is left)");
+check(mut0(function (x) { x.vessels[0].revert = "yes"; }).some((m) => /revert flag/.test(m)), "a revert flag that is not true or false: refused");
+check(mut0(function (x) { delete x.vessels[0].revert; }).length === 0, "a vessel with no revert flag (an older save) is fine");
+const noBlock = fn("universeLaunchBlock");
+check(noBlock(fn("universeNew")()) === null, "an empty universe: nothing blocks a launch");
+u = fn("universeNew")();
+for (let i = 0; i < 4; i++) { const a = addVessel(u, DESIGN, "R" + i); u = updateVessel(a.universe, a.id, { status: "landed", state: stateOf({ pos: { x: 100 * i, y: 600000 } }) }).universe; }
+const full = addVessel(u, DESIGN, "Extra");
+check(u.vessels.length === 4 && full.id === null && /full \(4 vessels\)/.test(full.problem) && full.universe === u, "at the vessel limit (4 here) a new launch is refused and the message says so");
+check(addVessel(removeVessel(u, "v1").universe, DESIGN, "Extra").id === "v5", "scrapping one makes room");
+function mut0(f) { const x = twoVessels(); f(x); return problemsOf(x); }
 
 /* ---- 3. checking the shape of a universe ---- */
 console.log("\n3. Checking the shape of a universe");

@@ -6,8 +6,9 @@
    recovery summary. Ordinary page elements over the canvas: while the menu
    is closed it is hidden and costs nothing. The flight report is in report.js.
      Resume            back to the flight
-     Revert to launch  the same rocket on the pad again (any number of times; what you did is lost)
-     Back to builder   leave the flight (the rocket is lost unless it was recovered)
+     Revert to launch  the same rocket on the pad again, only during the flight it was launched in (not once it has been left)
+     Back to builder   leave the rocket where it is, but only if it is safe to leave: still on the ground, or in a permanent orbit, with the throttle off
+     Vessels           the rockets left in the universe: switch to one, or scrap it
      Recover vessel    only when it is down and still: ends the flight as a success and shows the results
    ===================================================================== */
 
@@ -53,17 +54,49 @@ function mbutton(label, fn, disabled, cls) {
 }
 
 /* ---- what the buttons do ---- */
-function doRevert() { menuUi.root.style.display = "none"; resetAll(); }
+function doRevert() {
+  if (!flightEnded && typeof flightCanRevert === "function" && !flightCanRevert().ok) return;   // (flightstate.js) the button is greyed too
+  menuUi.root.style.display = "none";
+  resetAll();
+  if (typeof flightTracked === "function") {                                           // (flightstate.js)
+    const kept = flightTracked() ? persistFlight(true) : flightRetrack(currentDesign);   // the vessel is back on the pad (after a recovery it goes back on as a new one)
+    if (!kept.ok) log("Not saved: " + kept.problem, "warning");
+  }
+}
 
 function doBuilder() {
-  if (!flightEnded && sim.flown && !confirm("Leave the flight? The rocket will be lost. Recover it first to keep the results.")) return;
+  if (typeof flightTracked === "function" && flightTracked()) {
+    const left = flightLeave();                                                         // saves it where it is, for good, if it is safe to leave
+    if (!left.ok) { log("Can't leave: " + left.problem, "warning"); showPanel("main"); return; }
+    flightDetach();
+  } else if (!flightEnded && sim.flown && !confirm("This is a test flight and is not kept. Leave it? The rocket will be lost.")) return;
   location.href = "builder.html" + designToHash(currentDesign);
+}
+
+function doSwitch(id) {                                                                 // leave this rocket and fly another; the page reloads into it
+  if (typeof flightSwitchTo !== "function") return;
+  if (!flightTracked() && !flightEnded && sim.flown && !confirm("This is a test flight and is not kept. Switch anyway? The rocket will be lost.")) return;
+  const r = flightSwitchTo(id);
+  if (!r.ok) { log("Can't switch: " + r.problem, "warning"); showPanel("vessels"); return; }
+  location.href = "index.html";
+}
+
+function doScrap(id) {                                                                  // remove a vessel from the universe for good
+  const r = universeLoad(), v = r.universe && universeVessel(r.universe, id);
+  if (!v || !confirm("Scrap " + v.name + "? It is removed from the universe for good.")) return;
+  const s = universeSave(universeRemoveVessel(r.universe, id).universe);
+  if (!s.ok) log("Not saved: " + s.problem, "warning");
+  showPanel("vessels");
 }
 
 function doRecover() {
   if (!recoverable().ok) return;
   archiveFlight("recovered");
   flightEnded = true;
+  if (typeof flightRecovered === "function") {
+    const out = flightRecovered();                                                     // it leaves the universe: the pad is clear again
+    if (!out.ok && out.problem !== "this flight is not kept") log("Not saved: " + out.problem, "warning");
+  }
   showPanel("recovered");
 }
 
@@ -74,6 +107,7 @@ function showPanel(name) {
   box.textContent = ""; box.className = "mbox";
   if (name === "main") panelMain(box);
   else if (name === "controls") panelControls(box);
+  else if (name === "vessels") panelVessels(box);
   else if (name === "recovered") panelRecovered(box);
   else if (name === "report") buildReport(box);
 }
@@ -82,8 +116,13 @@ function panelMain(box) {
   box.appendChild(mel("div", "mh", flightEnded ? "Flight ended" : "Paused"));
   box.appendChild(mel("div", "ms", (currentDesign.name || "Rocket") + "   " + (sim.started ? "T+" + sim.t.toFixed(0) + " s" : "on the pad")));
   if (!flightEnded) mbutton("Resume", closeMenu, false, "go");
-  mbutton(flightEnded ? "Launch again" : "Revert to launch", doRevert, false, flightEnded ? "go" : "");
-  mbutton("Back to builder", doBuilder);
+  const rev = !flightEnded && typeof flightCanRevert === "function" ? flightCanRevert() : { ok: true, reason: null };
+  mbutton(flightEnded ? "Launch again" : "Revert to launch", doRevert, !rev.ok, flightEnded ? "go" : "");
+  if (!rev.ok) box.appendChild(mel("div", "mnote", rev.reason));
+  const leave = !flightEnded && typeof flightCanLeave === "function" ? flightCanLeave() : { ok: true, reasons: [] };
+  mbutton("Back to builder", doBuilder, !leave.ok);
+  for (const why of leave.reasons) box.appendChild(mel("div", "mnote", "Can't leave: " + why));
+  if (typeof universeLoad === "function") mbutton("Vessels", function () { showPanel("vessels"); });
   if (!flightEnded) {
     const rc = recoverable();
     mbutton("Recover vessel", doRecover, !rc.ok);
@@ -103,6 +142,20 @@ function panelControls(box) {
   box.appendChild(mel("div", "mh", "Controls"));
   box.appendChild(mel("div", "ms", "Everything else is in this menu or on the buttons in the bottom bar."));
   for (const k of KEY_LIST) { const r = mel("div", "mrow2"); r.appendChild(mel("span", "k", k[0])); r.appendChild(mel("span", "", k[1])); box.appendChild(r); }
+  mbutton("Back", function () { showPanel("main"); });
+}
+
+function panelVessels(box) {
+  box.appendChild(mel("div", "mh", "Vessels"));
+  const r = typeof universeLoad === "function" ? universeLoad() : null;
+  if (!r || !r.universe) box.appendChild(mel("div", "ms", "Nothing is saved yet."));
+  else {
+    const leave = !flightEnded && typeof flightCanLeave === "function" ? flightCanLeave() : { ok: true, reasons: [] };
+    box.appendChild(mel("div", "ms", leave.ok ? "Resume one to switch to it. This rocket stays where it is." : "To switch, this rocket has to be safe to leave first."));
+    for (const why of leave.reasons) box.appendChild(mel("div", "mnote", "Can't leave: " + why));
+    const n = renderVesselList(box, r.universe, { currentId: flightTracked() ? flightVesselId : null, resumeDisabled: !leave.ok, btnClass: "mb", onResume: doSwitch, onScrap: doScrap });
+    if (n === 0) box.appendChild(mel("div", "ms", "No vessels yet."));
+  }
   mbutton("Back", function () { showPanel("main"); });
 }
 

@@ -5,6 +5,7 @@
    The game loop, the view keys (zoom, map, time warp, menu) and the
    start-up. Flight keys (W S A D Z X T) are in controls.js; the pause
    menu (Esc) is in menu.js.
+   The flight opens the universe's active vessel (flightstate.js) and keeps it saved as you fly.
    Physics runs in fixed slices of DT. Time warp just runs more slices per
    frame; if the computer cannot keep up (more than ~12 ms of physics in a
    frame) the sim runs slower than asked instead of freezing, and the bar
@@ -63,6 +64,8 @@ function frame(now) {
     while (acc >= DT && n < 10 * warp && performance.now() - t0 < STEP_BUDGET_MS) { stepSim(); acc -= DT; n++; }
     if (acc >= DT) acc = 0;                                  // drop the backlog instead of spiralling
     if (dtFrame > 0) warpActual += (n * DT / dtFrame - warpActual) * 0.1;
+    if (n > 0) flightTick(n * DT);                           // the universe clock moves on by the physics time that passed
+    flightAutosave(now);                                     // and the rocket is saved now and then
   } else acc = 0;
   const t1 = performance.now();
   updateView(dtFrame);
@@ -75,8 +78,23 @@ function frame(now) {
 const launched = designFromHash(location.hash);                 // the builder opens this page with the design in the address
 for (const msg of launched.problems) log("DESIGN: " + msg, "warning");
 let currentDesign = launched.design || DESIGN;                      // what is on the pad now (the menu sends it back to the builder)
-if (launched.design) ROCKET = assemble(launched.design);
+let opening = null;                                                  // the vessel taken from the universe, if there is one: { id, design, state, notes }
+if (launched.design) ROCKET = assemble(launched.design);             // a design in the address: a free test flight, not kept
+else {
+  opening = flightLoadActive();                                      // no design in the address: fly the universe's active vessel
+  if (opening.id) { currentDesign = opening.design; ROCKET = assemble(opening.design); flightAttach(opening.id, opening.status); }
+}
 for (const msg of checkRules(ROCKET.parts)) log("RULE BROKEN: " + msg, "warning");   // the rocket must follow rules.js
 resize();
 resetAll();
+if (opening) {
+  if (opening.id && opening.state) {                                 // a vessel that was already flying: put it back as it was
+    const back = restoreVessel(opening.state);
+    if (!back.ok) { flightDetach(); log("Could not put " + (currentDesign.name || "the rocket") + " back (" + back.problem + "). This is a free test flight.", "warning"); }
+    else log("Back in flight: " + (currentDesign.name || "Rocket") + ".", "flight");
+  }
+  for (const msg of opening.notes) log(msg, "warning");
+}
+window.addEventListener("pagehide", function () { persistFlight(false); });          // closing the tab or leaving the page keeps the rocket
+document.addEventListener("visibilitychange", function () { if (document.hidden) persistFlight(false); });
 requestAnimationFrame(frame);

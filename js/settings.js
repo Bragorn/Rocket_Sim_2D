@@ -33,6 +33,12 @@ const SPACE_ALT = 70000;             // above this the air is too thin to matter
 
 /* ---- the pad ---- */
 const PAD_GAP = 0.02;                // the lowest point of the rocket starts this far above the ground, m
+const MAX_VESSELS = 200;             // how many vessels the universe holds. Frozen vessels cost almost nothing to keep: this limit is about save size and a crowded list (raise it later, see the rules document)
+const LEAVE_SETTLE = 2;              // s: a rocket on the ground must have been calm this long before you can leave it
+const LEAVE_SPEED = 0.3;             // m/s: on the ground it must be moving slower than this to be left (and to count as calm)
+const LEAVE_SPIN = 0.05;             // rad/s: and turning slower than this (about 3 degrees a second); the same limit applies in orbit
+const LEAVE_ORBIT_MARGIN = 5000;     // m: the lowest point of an orbit must clear the top of the air (SPACE_ALT) by this much for the vessel to be left there
+const PAD_RADIUS = 20;               // m: a rocket on the ground within this distance of where it started counts as standing on the pad (universe.js: only one at a time)
 
 /* ---- breaking ---- */
 const MIN_IMPACT_SPEED = 0.5;        // m/s: a part touching the ground slower than this is never damaged (guards against numerical noise).

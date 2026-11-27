@@ -39,6 +39,8 @@ class Body {
   setLinearVelocity(v) { this.vel = new Vec2(v.x, v.y); }
   getAngularVelocity() { return this.spin; }
   setAngularVelocity(w) { this.spin = w; }
+  setTransform(p, a) { this.pos = new Vec2(p.x, p.y); this.angle = a; }
+  setAwake() {}
   applyForce(f) { this.forceSum += Math.hypot(f.x, f.y); }
   applyForceToCenter() {}
   applyTorque(t) { this.torque += t; }
@@ -49,6 +51,13 @@ class World {
   constructor() { this.first = null; this.last = null; this.bodies = []; }
   createBody(def) { const b = new Body(def); if (this.last) this.last.next = b; else this.first = b; this.last = b; this.bodies.push(b); return b; }
   getBodyList() { return this.first; }
+  destroyBody(b) {
+    const i = this.bodies.indexOf(b);
+    if (i < 0) return;
+    this.bodies.splice(i, 1);
+    this.first = this.bodies[0] || null; this.last = this.bodies[this.bodies.length - 1] || null;
+    for (let k = 0; k < this.bodies.length; k++) this.bodies[k].next = this.bodies[k + 1] || null;
+  }
   dynamicCount() { return this.bodies.filter(function (b) { return b.type === "dynamic"; }).length; }
   on() {}
   step() {}

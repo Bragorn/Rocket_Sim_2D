@@ -11,7 +11,7 @@
      clock     universe time in seconds. Resources and orbits will run off this, not off a flight's own clock
      nextId    the number the next vessel's id will get ("v1", "v2", ...); ids are never reused
      activeId  the vessel you are flying or have open (null = none)
-   A vessel:    { id, name, design, status, state }
+   A vessel:    { id, name, design, status, state, revert }
      design    the rocket's design (design.js). It is what the vessel is built from, so it is kept whole
      status    "pad"     standing on the launch pad, untouched (state is null)
                "flying"  in the air under full physics when it was last saved
@@ -22,9 +22,12 @@
                  activeEngines: [ids], detached: [ids], throttle }   (positions from the planet's centre, SI units)
                THIS SHAPE IS PROVISIONAL: the next milestone (saving a real flight) will confirm it against the sim.
                Fields it does not know about are kept, so a later version can add some without breaking old saves.
+     revert    true from the moment it is launched until the player leaves it (back to the builder or to another vessel). While it is
+               true, "Revert to launch" works. Left out in saves from before this existed, which counts as false.
 
-   The pad rule: only one vessel can stand on the pad. A new rocket can be put on it only when no vessel has the
-   status "pad". It is cleared by recovering the vessel (universeRemoveVessel) or by flying it off (status changes).
+   Launching (universeLaunchBlock says why not): the pad must be clear (only one vessel can stand on it; it is cleared by
+   recovering the vessel, by flying it off, or by taking an untouched one off), no vessel may be left mid-flight (status
+   "flying": it has to be resumed and settled, or scrapped), and the universe must not be full (MAX_VESSELS).
 
    Like designs, a universe is never changed in place: every change returns a new one.
 
@@ -60,16 +63,26 @@ function padOccupant(u) {              // the vessel standing on the pad, or nul
 }
 function padIsClear(u) { return padOccupant(u) === null; }
 
-/* Put a new rocket on the pad. Only if the pad is clear and the design is one that can be launched.
-   Returns { universe, id, problem }: id is the new vessel's id, or null (and problem says why) with the universe unchanged.
-   It becomes the active vessel. */
-function universeAddVessel(u, design, name) {
+/* Why a new rocket cannot go on the pad right now, or null if it can. */
+function universeLaunchBlock(u) {
   const on = padOccupant(u);
-  if (on) return { universe: u, id: null, problem: "the pad is not clear: " + on.name + " is still on it" };
+  if (on) return "the pad is not clear: " + on.name + " is still on it";
+  const air = u.vessels.find(function (v) { return v.status === "flying"; });
+  if (air) return air.name + " was left mid-flight: resume it and bring it down or into orbit, or scrap it";
+  if (typeof MAX_VESSELS !== "undefined" && u.vessels.length >= MAX_VESSELS) return "the universe is full (" + u.vessels.length + " vessels): scrap one first";
+  return null;
+}
+
+/* Put a new rocket on the pad. Only if universeLaunchBlock allows it and the design is one that can be launched.
+   Returns { universe, id, problem }: id is the new vessel's id, or null (and problem says why) with the universe unchanged.
+   It becomes the active vessel, and it can be reverted until it is left. */
+function universeAddVessel(u, design, name) {
+  const block = universeLaunchBlock(u);
+  if (block) return { universe: u, id: null, problem: block };
   const bad = validateDesign(design);
   if (bad.length) return { universe: u, id: null, problem: "that design cannot be launched: " + bad[0] };
   const n = universeCopy(u), id = "v" + n.nextId++;
-  n.vessels.push({ id: id, name: String(name || design.name || "rocket"), design: JSON.parse(JSON.stringify(design)), status: "pad", state: null });
+  n.vessels.push({ id: id, name: String(name || design.name || "rocket"), design: JSON.parse(JSON.stringify(design)), status: "pad", state: null, revert: true });
   n.activeId = id;
   return { universe: n, id: id, problem: null };
 }
@@ -90,11 +103,11 @@ function universeSetActive(u, id) {    // id = null: no vessel active
   return { universe: n, problem: null };
 }
 
-/* Change a vessel's name, status or state. Anything else in the patch (its id, its design) is ignored. */
+/* Change a vessel's name, status, state or revert flag. Anything else in the patch (its id, its design) is ignored. */
 function universeUpdateVessel(u, id, patch) {
   if (!universeVessel(u, id)) return { universe: u, problem: "there is no vessel " + id };
   const n = universeCopy(u), v = universeVessel(n, id);
-  for (const k of ["name", "status", "state"]) if (patch && patch[k] !== undefined) v[k] = JSON.parse(JSON.stringify(patch[k]));
+  for (const k of ["name", "status", "state", "revert"]) if (patch && patch[k] !== undefined) v[k] = JSON.parse(JSON.stringify(patch[k]));
   return { universe: n, problem: null };
 }
 
@@ -145,6 +158,7 @@ function universeProblems(u) {
     if (typeof v.name !== "string") bad.push(at + ": it has no name");
     if (VESSEL_STATUS.indexOf(v.status) < 0) bad.push(at + ": status " + JSON.stringify(v.status) + " is not one of " + VESSEL_STATUS.join(", "));
     if (!v.design || typeof v.design !== "object" || !Array.isArray(v.design.parts)) bad.push(at + ": it has no design");
+    if (v.revert !== undefined && typeof v.revert !== "boolean") bad.push(at + ": its revert flag is not true or false");
     if (v.status === "pad") pad++;
     if (v.status !== "pad" && VESSEL_STATUS.indexOf(v.status) >= 0 && v.state === null) bad.push(at + ": it is " + v.status + " but has no state");
     if (v.state !== null && v.state !== undefined) for (const m of vesselStateProblems(v.state)) bad.push(at + ": " + m);

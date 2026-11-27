@@ -151,6 +151,15 @@ function buildRight() {
   ui.launch = el("button", "btn go", "Launch");
   ui.launch.addEventListener("click", launch);
   go.appendChild(ui.launch); rightEl.appendChild(go);
+  const padBtns = el("div", "btns");                                   // shown only when a rocket is already in the universe (see refresh)
+  ui.resume = el("button", "btn", "Resume flight");
+  ui.resume.addEventListener("click", function () { location.href = "index.html"; });
+  ui.unload = el("button", "btn", "Take it off the pad");
+  ui.unload.addEventListener("click", unloadPad);
+  ui.resume.style.display = "none"; ui.unload.style.display = "none";
+  padBtns.appendChild(ui.resume); padBtns.appendChild(ui.unload); rightEl.appendChild(padBtns);
+  ui.vesselsHead = el("div", "sec", "Vessels"); ui.vesselsHead.style.display = "none"; rightEl.appendChild(ui.vesselsHead);   // the rockets in the universe (refresh fills it)
+  ui.vessels = el("div", "box"); ui.vessels.style.display = "none"; rightEl.appendChild(ui.vessels);
 
   rightEl.appendChild(el("div", "sec", "Designs"));
   const b1 = el("div", "btns");
@@ -203,7 +212,19 @@ function refresh() {
   if (bad.length === 0) { const d = el("div", "good", "Ready to launch"); ui.problems.appendChild(d); }
   else for (const m of bad) { const d = el("div", "bad", m); d.style.marginBottom = "3px"; ui.problems.appendChild(d); }
   if (bad.length === 0) for (const m of designWarnings(design)) { const d = el("div", "warn", m); d.style.marginBottom = "3px"; ui.problems.appendChild(d); }
-  ui.launch.disabled = bad.length > 0;
+  const pad = padState();                                              // what is in the universe: a rocket on the pad, one left mid-flight, or a full universe, blocks a new launch
+  ui.resume.style.display = "none"; ui.unload.style.display = "none";
+  if (pad && pad.block) {
+    const on = pad.occupant;
+    const d = el("div", "bad", "Can't launch: " + pad.block + "." + (on ? (on.state === null ? " It has not flown, so you can take it off the pad." : " Resume it and fly it off the pad, or recover it.") : ""));
+    d.style.marginBottom = "3px"; ui.problems.appendChild(d);
+  }
+  if (pad && pad.occupant && pad.occupant.state === null) ui.unload.style.display = "";
+  if (pad && pad.active) { ui.resume.textContent = "Resume flight: " + pad.active.name; ui.resume.style.display = ""; }
+  ui.vessels.textContent = "";
+  const listed = pad ? renderVesselList(ui.vessels, pad.universe, { btnClass: "btn", onResume: resumeVessel, onScrap: scrapVessel }) : 0;
+  ui.vesselsHead.style.display = listed ? "" : "none"; ui.vessels.style.display = listed ? "" : "none";
+  ui.launch.disabled = bad.length > 0 || !!(pad && pad.block);
   ui.saved.textContent = "";
   const names = Object.keys(savedDesigns());
   for (const n of names) { const o = el("option", "", n); o.value = n; ui.saved.appendChild(o); }
@@ -269,10 +290,60 @@ window.addEventListener("mouseup", function () {
 });
 
 /* ---- buttons ---- */
+/* What is in the universe (universe.js): { universe, occupant, active, block }. occupant: the vessel on the launch pad; active: the one
+   last flown (both a vessel or null); block: why a new rocket cannot be launched, or null. null altogether if there is no universe. */
+function padState() {
+  if (typeof universeLoad !== "function") return null;
+  const r = universeLoad();
+  if (!r.universe) return null;
+  const u = r.universe;
+  return { universe: u, occupant: padOccupant(u), active: u.activeId ? universeVessel(u, u.activeId) : null, block: universeLaunchBlock(u) };
+}
+
+/* The list buttons: fly a vessel again (the flight page opens the active one), or scrap it for good. */
+function resumeVessel(id) {
+  const r = universeLoad();
+  if (!r.universe) return;
+  const sw = universeSetActive(r.universe, id), s = sw.problem ? { ok: false, problem: sw.problem } : universeSave(sw.universe);
+  if (!s.ok) { alert("Could not switch: " + s.problem); return; }
+  location.href = "index.html";
+}
+function scrapVessel(id) {
+  const r = universeLoad(), v = r.universe && universeVessel(r.universe, id);
+  if (!v || !confirm("Scrap " + v.name + "? It is removed from the universe for good.")) return;
+  const s = universeSave(universeRemoveVessel(r.universe, id).universe);
+  if (!s.ok) alert("Could not save: " + s.problem);
+  refresh();
+}
+
+/* A rocket that has never been touched can be taken off the pad again. One that has flown (or fired a stage) has to be recovered in the game. */
+function unloadPad() {
+  const pad = padState();
+  if (!pad || !pad.occupant || pad.occupant.state !== null) return;
+  if (!confirm("Take " + pad.occupant.name + " off the pad? It has not flown.")) return;
+  const r = universeLoad(), out = universeRemoveVessel(r.universe, pad.occupant.id), s = universeSave(out.universe);
+  if (!s.ok) alert("Could not save: " + s.problem);
+  refresh();
+}
+
 function launch() {
   if (ui.launch.disabled) return;
   try { localStorage.setItem("rocketsim.draft", JSON.stringify(design)); } catch (e) { /* ok */ }
-  location.href = "index.html" + designToHash(design);
+  if (typeof universeLoad !== "function") { location.href = "index.html" + designToHash(design); return; }
+  const r = universeLoad();
+  if (r.status === "unreadable") {                                      // never write over a save that is there but cannot be read, without asking
+    if (!confirm("The saved universe could not be read (" + r.problems[0] + ").\nStart a new universe? The damaged save will be replaced.")) return;
+    universeErase();
+  }
+  const a = universeAddVessel(r.universe || universeNew(), design);      // the rocket goes on the pad as a vessel of the universe
+  if (!a.id) { alert(a.problem); refresh(); return; }
+  const s = universeSave(a.universe);
+  if (!s.ok) {
+    if (!confirm("This launch could not be saved (" + s.problem + ").\nFly it anyway as a test flight? It will not be kept.")) return;
+    location.href = "index.html" + designToHash(design);               // a design in the address is a free test flight
+    return;
+  }
+  location.href = "index.html";
 }
 function saveNamed() {
   if (parked.length) { alert("Parts are not attached. Attach or delete the loose parts before you save."); return; }

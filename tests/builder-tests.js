@@ -28,17 +28,18 @@ function makeEl(tag) {
 }
 let raf = null, hrefSet = "";
 const stored = {};
+let confirmAnswer = true;                   // what the "are you sure?" boxes answer
 const ctx = {
   console, Math, Object, Array, Number, JSON, String, Date, encodeURIComponent, decodeURIComponent, setTimeout,
   document: { createElement: makeEl, getElementById: (id) => els[id] || (els[id] = makeEl("div")), body: makeEl("body") },
   window: { devicePixelRatio: 1, addEventListener: (n, f) => { (winHandlers[n] = winHandlers[n] || []).push(f); } },
   requestAnimationFrame: (f) => { raf = f; },
-  localStorage: { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = String(v); } },
+  localStorage: { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = String(v); }, removeItem: (k) => { delete stored[k]; } },
   location: { hash: "", set href(v) { hrefSet = v; }, get href() { return hrefSet; } },
-  alert: noop, confirm: () => true, planck: { Settings: {}, Vec2: function (x, y) { this.x = x; this.y = y; } }
+  alert: noop, confirm: () => confirmAnswer, planck: { Settings: {}, Vec2: function (x, y) { this.x = x; this.y = y; } }
 };
 vm.createContext(ctx);
-for (const f of ["util", "settings", "rules", "parts", "design", "aero", "stats", "edit"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
+for (const f of ["util", "settings", "rules", "parts", "design", "universe", "orbit", "vessellist", "aero", "stats", "edit"]) vm.runInContext(fs.readFileSync(path.join(root, "js", f + ".js"), "utf8"), ctx, { filename: f + ".js" });
 const run = (e) => vm.runInContext(e, ctx);
 const DESIGN = run("DESIGN");
 const tank = (id, w, l, extra) => Object.assign({ id, type: "tank", width: w, length: l }, extra);
@@ -183,7 +184,53 @@ stageEmit("wheel", { clientX: 450, clientY: 350, deltaY: -100 }); frames(1);
 check(run("view.scale") > 28 || run("view.scale") > 0, "panning and zooming work");
 // launch sends the design to the game in the address
 run("ui.launch.disabled") === false && run("launch")();
-check(/^index\.html#d=/.test(hrefSet) && run("designFromHash")(hrefSet.slice("index.html".length)).design !== null, "Launch opens the game with the design in the address, and the game can read it back");
+let uni = run("universeLoad")().universe;
+check(hrefSet === "index.html" && uni && uni.vessels.length === 1 && uni.vessels[0].status === "pad" && uni.vessels[0].state === null && uni.activeId === "v1" && JSON.stringify(uni.vessels[0].design) === JSON.stringify(run("design")), "Launch puts the rocket on the pad of the universe and opens the game, which takes it from there");
+// a rocket on the pad blocks the next launch
+const padTexts = () => run("ui.problems.children").map(c => c.textContent).join(" | ");
+run("refresh")();
+check(run("ui.launch.disabled") === true && /pad is not clear/.test(padTexts()), "with a rocket on the pad Launch is off, and the reason is listed");
+check(run("ui.unload.style.display") === "" && /not flown/.test(padTexts()) && /^Resume flight: /.test(run("ui.resume.textContent")) && run("ui.resume.style.display") === "", "a rocket that has not flown can be taken off the pad, and the flight can be resumed");
+run("unloadPad")();
+check(run("universeLoad")().universe.vessels.length === 0 && run("ui.launch.disabled") === false && run("ui.unload.style.display") === "none" && run("ui.resume.style.display") === "none", "taking it off the pad clears it: Launch is on again, and the two buttons are gone");
+// a rocket that has been touched has to be recovered in the game
+hrefSet = ""; run("launch")();
+const touch = (status) => run("(function(){ const r = universeLoad(), id = r.universe.vessels[r.universe.vessels.length - 1].id; universeSave(universeUpdateVessel(r.universe, id, { status: '" + status + "', state: { pos: { x: 0, y: 600005 }, vel: { x: 0, y: 0 }, angle: 0, angVel: 0, fuel: {}, stageNext: 1 } }).universe); })()");
+touch("pad"); run("refresh")();
+check(run("ui.launch.disabled") === true && run("ui.unload.style.display") === "none" && /Resume it/.test(padTexts()), "a rocket that has been touched cannot be taken off the pad from here: it has to be resumed and flown off or recovered");
+run("unloadPad")();
+check(run("universeLoad")().universe.vessels.length === 1, "and the take-off button does nothing to it if it is somehow pressed");
+// a rocket left mid-flight blocks the next launch until it is brought down or scrapped
+touch("flying"); run("refresh")(); hrefSet = "";
+check(run("ui.launch.disabled") === true && /mid-flight/.test(padTexts()) && !/pad is not clear/.test(padTexts()), "a rocket left mid-flight blocks Launch, and the message says to resume or scrap it");
+// the vessel list
+const listText = () => run("ui.vessels.children").map(r => r.children.map(c => c.textContent + ":" + c.children.map(d => d.textContent).join("/")).join(" ")).join(" || ");
+check(run("ui.vessels.style.display") === "" && run("ui.vesselsHead.style.display") === "" && /Mid-flight/.test(listText()) && /left mid-flight/.test(listText()), "the vessel list shows the rocket, what it is doing, and that it was left mid-flight");
+const rowButtons = () => run("ui.vessels.children[0].children").filter(c => c.children.length === 0 && /Resume|Scrap/.test(c.textContent));
+const press = (b) => (b.listeners.click || []).forEach((f) => f({}));          // the stand-in page's click() does nothing, so call the click handlers
+hrefSet = "";
+press(rowButtons().find(b => b.textContent === "Resume"));
+check(hrefSet === "index.html" && run("universeLoad")().universe.activeId === run("universeLoad")().universe.vessels[0].id, "Resume makes that vessel the active one and opens the flight");
+confirmAnswer = false; press(rowButtons().find(b => b.textContent === "Scrap"));
+check(run("universeLoad")().universe.vessels.length === 1, "Scrap asks first: saying no keeps the vessel");
+confirmAnswer = true; press(rowButtons().find(b => b.textContent === "Scrap"));
+check(run("universeLoad")().universe.vessels.length === 0 && run("ui.launch.disabled") === false && run("ui.vessels.style.display") === "none", "Scrap removes it from the universe: the list empties and Launch is on again");
+// a rocket parked on the ground does not block the next launch
+run("launch")(); touch("landed"); run("refresh")(); hrefSet = "";
+check(run("ui.launch.disabled") === false && /Landed/.test(listText()), "a rocket put down on the ground is listed as landed and does not block Launch");
+run("launch")();
+uni = run("universeLoad")().universe;
+check(hrefSet === "index.html" && uni.vessels.length === 2 && uni.vessels[0].status === "landed" && uni.vessels[1].status === "pad" && uni.activeId === uni.vessels[1].id, "the new rocket goes on the pad, becomes the active one, and the parked one is kept");
+run("refresh")();
+check(run("ui.vessels.children").length === 2, "both are in the vessel list");
+// a save that cannot be read is never written over without asking
+run("universeErase")(); run("refresh")(); hrefSet = "";
+stored["rocketsim.universe"] = "garbage"; confirmAnswer = false;
+run("launch")();
+check(hrefSet === "" && stored["rocketsim.universe"] === "garbage", "an unreadable universe: say no and nothing happens, the damaged save is left alone");
+confirmAnswer = true; run("launch")();
+check(hrefSet === "index.html" && run("universeLoad")().status === "ok" && run("universeLoad")().universe.vessels.length === 1, "say yes and a new universe is started with the rocket on the pad");
+run("universeErase")(); run("refresh")();        // the rest of the tests start with an empty pad
 // a design that cannot fly disables Launch
 run("setDesign(removeSubtree(design, 'engine'))"); frames(1);
 check(run("ui.launch.disabled") === true && run("ui.problems.children.length") > 0, "without an engine the Launch button is off and the reason is listed");
