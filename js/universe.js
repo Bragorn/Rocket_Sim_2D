@@ -11,7 +11,7 @@
      clock     universe time in seconds. Resources and orbits will run off this, not off a flight's own clock
      nextId    the number the next vessel's id will get ("v1", "v2", ...); ids are never reused
      activeId  the vessel you are flying or have open (null = none)
-   A vessel:    { id, name, design, status, state, revert }
+   A vessel:    { id, name, design, status, state, revert, epoch }
      design    the rocket's design (design.js). It is what the vessel is built from, so it is kept whole
      status    "pad"     standing on the launch pad, untouched (state is null)
                "flying"  in the air under full physics when it was last saved
@@ -22,6 +22,8 @@
                  activeEngines: [ids], detached: [ids], throttle }   (positions from the planet's centre, SI units)
                THIS SHAPE IS PROVISIONAL: the next milestone (saving a real flight) will confirm it against the sim.
                Fields it does not know about are kept, so a later version can add some without breaking old saves.
+     epoch     the universe clock when `state` was saved. A vessel in orbit is moved along its orbit for the time since (rails.js).
+               Left out in older saves: then it is taken to be where it was left.
      revert    true from the moment it is launched until the player leaves it (back to the builder or to another vessel). While it is
                true, "Revert to launch" works. Left out in saves from before this existed, which counts as false.
 
@@ -82,7 +84,7 @@ function universeAddVessel(u, design, name) {
   const bad = validateDesign(design);
   if (bad.length) return { universe: u, id: null, problem: "that design cannot be launched: " + bad[0] };
   const n = universeCopy(u), id = "v" + n.nextId++;
-  n.vessels.push({ id: id, name: String(name || design.name || "rocket"), design: JSON.parse(JSON.stringify(design)), status: "pad", state: null, revert: true });
+  n.vessels.push({ id: id, name: String(name || design.name || "rocket"), design: JSON.parse(JSON.stringify(design)), status: "pad", state: null, revert: true, epoch: n.clock });
   n.activeId = id;
   return { universe: n, id: id, problem: null };
 }
@@ -107,7 +109,7 @@ function universeSetActive(u, id) {    // id = null: no vessel active
 function universeUpdateVessel(u, id, patch) {
   if (!universeVessel(u, id)) return { universe: u, problem: "there is no vessel " + id };
   const n = universeCopy(u), v = universeVessel(n, id);
-  for (const k of ["name", "status", "state", "revert"]) if (patch && patch[k] !== undefined) v[k] = JSON.parse(JSON.stringify(patch[k]));
+  for (const k of ["name", "status", "state", "revert", "epoch"]) if (patch && patch[k] !== undefined) v[k] = JSON.parse(JSON.stringify(patch[k]));
   return { universe: n, problem: null };
 }
 
@@ -158,6 +160,7 @@ function universeProblems(u) {
     if (typeof v.name !== "string") bad.push(at + ": it has no name");
     if (VESSEL_STATUS.indexOf(v.status) < 0) bad.push(at + ": status " + JSON.stringify(v.status) + " is not one of " + VESSEL_STATUS.join(", "));
     if (!v.design || typeof v.design !== "object" || !Array.isArray(v.design.parts)) bad.push(at + ": it has no design");
+    if (v.epoch !== undefined && !(uvNum(v.epoch) && v.epoch >= 0)) bad.push(at + ": its epoch is not a time in seconds (0 or more)");
     if (v.revert !== undefined && typeof v.revert !== "boolean") bad.push(at + ": its revert flag is not true or false");
     if (v.status === "pad") pad++;
     if (v.status !== "pad" && VESSEL_STATUS.indexOf(v.status) >= 0 && v.state === null) bad.push(at + ": it is " + v.status + " but has no state");
@@ -225,6 +228,7 @@ function universeStorage() {           // the browser's storage, or null if ther
 /* Save. `store` is for the tests; leave it out to use the browser's. Returns { ok, problem, saveCount }.
    A universe with a broken shape is refused, so a bug can never overwrite a good save with garbage. */
 function universeSave(u, store) {
+  if (store === undefined && typeof sessionAllowsSave === "function" && !sessionAllowsSave()) return { ok: false, problem: "the game is open in another window, and this one cannot save", saveCount: 0 };   // (session.js)
   const s = store === undefined ? universeStorage() : store;
   if (!s) return { ok: false, problem: "this browser does not let the game keep saves", saveCount: 0 };
   const bad = universeProblems(u);
@@ -272,6 +276,7 @@ function universeLoad(store) {
 }
 
 function universeErase(store) {        // forget everything (a new game)
+  if (store === undefined && typeof sessionAllowsSave === "function" && !sessionAllowsSave()) return false;
   const s = store === undefined ? universeStorage() : store;
   if (!s) return false;
   try { for (const k of ["", ".next", ".prev"]) s.removeItem(UNIVERSE_KEY + k); return true; } catch (e) { return false; }

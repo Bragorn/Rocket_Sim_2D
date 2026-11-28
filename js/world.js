@@ -114,7 +114,7 @@ function buildWorld() {
           tanks: tanks, fuelFull: fuelFull, fuel: fuelFull,             // all tanks share one pool of fuel, drained evenly
           wheelMax: 0,                                                  // the turning push (N*m) of the reaction wheels on the rocket you fly
           refOffset: ROCKET.hull.at[1] + PAD_GAP,                       // height of the hull's centre on the pad: altitudes are shown minus this
-          thrust: 0, airborne: false, t: 0, emptyLogged: false,
+          thrust: 0, airborne: false, t: 0, emptyLogged: false, grace: 0,
           started: false, flown: false, touchdownSpeed: null,           // started = engine lit once (the flight clock runs); flown = has been in the air
           dragN: 0, accG: 1, pvx: 0, pvy: 0, p0: { x: hull.body.getPosition().x, y: hull.body.getPosition().y },
           rho: RHO0, q: 0, maxQ: 0, aoa: 0 };

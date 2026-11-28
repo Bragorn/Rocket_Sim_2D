@@ -32,13 +32,14 @@ function loadGame(store) {
 }
 
 /* a game with one vessel of the default rocket on the pad, kept by the flight (as the flight page does after the builder's Launch) */
-function startFlight(status) {
+function startFlight(status, touched, steps) {
   const store = fakeStore(), g = loadGame(store);
   const add = g.fn("universeAddVessel")(g.fn("universeNew")(), g.run("DESIGN"), "Test");
   g.fn("universeSave")(add.universe);
   g.run("ROCKET = assemble(DESIGN)"); g.run("buildWorld()");
   g.fn("flightAttach")(add.id, status === undefined ? "pad" : status);
-  g.step(60); g.tick(1);                                       // it settles on the pad
+  if (touched !== false) g.run("fireStage()");                 // an untouched rocket can always be left, so most tests use one that has had its stage fired (throttle still off)
+  g.step(steps === undefined ? 60 : steps); if (steps !== 0) g.tick(1);   // it settles on the pad
   return g;
 }
 const reasons = (g) => g.fn("flightCanLeave")().reasons.join(" | ");
@@ -62,9 +63,11 @@ check(rows[0].id === "v2" && rows[0].active && rows[0].unsafe && rows[1].id === 
 console.log("\n2. Can the rocket be left?");
 let g = loadGame(fakeStore()); g.run("ROCKET = assemble(DESIGN)"); g.run("buildWorld()");
 check(g.fn("flightCanLeave")().ok, "a free test flight (not kept) is never stopped from leaving");
+g = startFlight("pad", false, 0);
+check(g.fn("flightCanLeave")().ok && g.fn("flightIsUntouched")() && g.fn("flightCanLeave")().where === "pad", "a rocket nothing has happened to can be left at once, even before it has touched the ground");
 g = startFlight();
 let c = g.fn("flightCanLeave")();
-check(c.ok && c.where === "ground" && c.reasons.length === 0, "a rocket sitting still on the pad can be left (" + c.where + ")");
+check(c.ok && c.where === "ground" && c.reasons.length === 0 && !g.fn("flightIsUntouched")(), "a rocket that has fired its stage and sits still on the pad can be left (" + c.where + ")");
 check(g.fn("flightTouchingGround")(), "the real contact check sees it touching the ground");
 g.run("controls.throttle = 0.5");
 check(!g.fn("flightCanLeave")().ok && /throttle is on/.test(reasons(g)), "throttle on: refused, and it says so");
@@ -111,7 +114,15 @@ let u = g.fn("universeLoad")().universe;
 check(u.vessels[0].revert === true && g.fn("flightCanRevert")().ok, "before leaving: the vessel can be reverted");
 let out = g.fn("flightLeave")();
 u = g.fn("universeLoad")().universe;
-check(out.ok && u.vessels[0].status === "pad" && u.vessels[0].state === null && u.vessels[0].revert === false, "leaving an untouched rocket on the pad saves it as on the pad, with revert switched off");
+check(out.ok && u.vessels[0].status === "pad" && u.vessels[0].state !== null && u.vessels[0].state.stageNext === 1 && u.vessels[0].revert === false, "leaving a rocket that has fired its stage, on the pad, saves it as on the pad with its state, and revert switched off");
+g = startFlight("pad", false);
+out = g.fn("flightLeave")(); u = g.fn("universeLoad")().universe;
+check(out.ok && u.vessels[0].status === "pad" && u.vessels[0].state === null && u.vessels[0].revert === false, "leaving (switching away from) an untouched rocket keeps it on the pad, with no state and revert off");
+g = startFlight("pad", false);
+out = g.fn("flightUnload")(); u = g.fn("universeLoad")().universe;
+check(out.ok && u.vessels.length === 0 && u.activeId === null && !g.fn("flightTracked")() && g.fn("padIsClear")(u), "going back to the builder with an untouched rocket takes it out of the universe and clears the pad");
+g = startFlight(); out = g.fn("flightUnload")();
+check(out.ok && g.fn("universeLoad")().universe.vessels.length === 0, "(the unload itself works on any kept vessel; the menu only offers it for an untouched one)");
 g = startFlight(); g.run("sim.airborne = true"); g.run("sim.flown = true"); g.run("sim.started = true"); g.place(0, R + 120000, circ(120000), 0, 0);
 out = g.fn("flightLeave")(); u = g.fn("universeLoad")().universe;
 check(out.ok && u.vessels[0].status === "orbit" && u.vessels[0].revert === false && Math.abs(u.vessels[0].state.pos.y - (R + 120000)) < 1e-6 && Math.abs(u.vessels[0].state.vel.x - circ(120000)) < 1e-6, "leaving in orbit saves it as in orbit, where it is, with revert off");

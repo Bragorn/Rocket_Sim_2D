@@ -13,7 +13,14 @@
    Each part's own axes: x across it, y along it (nose end is +y).
    ===================================================================== */
 
-function airDensity(h) { return RHO0 * Math.exp(-Math.max(0, h) / SCALE_HEIGHT); }
+/* The air thins as e^(-height / scale height), but is taken to end exactly at SPACE_ALT: the curve is shifted so it reaches zero there (it is changed
+   by less than a third even at 60 km). Without that there would be a little drag at any height, and no orbit would ever be permanent: a vessel left in orbit
+   could not be moved along its path by calculation (rails.js) and still match the physics. Above SPACE_ALT there is no air, and no air pressure for engines. */
+const AIR_FLOOR = Math.exp(-SPACE_ALT / SCALE_HEIGHT);
+function airDensity(h) {
+  const x = (Math.exp(-Math.max(0, h) / SCALE_HEIGHT) - AIR_FLOOR) / (1 - AIR_FLOOR);
+  return x > 0 ? RHO0 * x : 0;
+}
 
 /* Where a part's own centre is in the world, and what it weighs right now (a tank weighs its dry mass plus the fuel left in it).
    A part has no body of its own: lx, ly is where its centre sits in the frame of the body it is on. */

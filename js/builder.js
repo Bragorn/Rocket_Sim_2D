@@ -707,6 +707,7 @@ function frame() {
 
 /* ---- start ---- */
 (function start() {
+  if (typeof sessionInstall === "function") sessionInstall();   // one window at a time may use the saved game (session.js)
   const fromHash = designFromHash(location.hash);              // coming back from the game (B), or a shared link
   let d = fromHash.design;
   if (!d) { try { const t = localStorage.getItem("rocketsim.draft"); if (t) { const dd = JSON.parse(t); if (validateDesign(dd, true).length === 0) { d = dd; loadParkedDraft(); } } } catch (e) { /* ok */ } }

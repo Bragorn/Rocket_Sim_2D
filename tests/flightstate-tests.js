@@ -118,6 +118,20 @@ check(!lost.ok && /gone/.test(lost.problem) && bad.run("sim.parts.length") === 6
 const unk = loadGame(fakeStore()); unk.open(TWO);
 check(unk.fn("restoreVessel")(Object.assign(clone(S), { fuel: { tank2: 1e12 } })).ok && unk.run("sim.tanks[0].fuel") === unk.run("sim.tanks[0].full"), "more fuel than the tank holds is cut down to what it holds");
 
+/* loading never damages: a rocket put back from a save cannot break for the first few seconds, however it is placed */
+{
+  const DROP = (g) => { const p = g.run("sim.hull.body.getPosition()"); return { pos: { x: p.x, y: p.y + 3 }, vel: { x: 0, y: -40 }, angle: 0, angVel: 0, fuel: {}, stageNext: 0, detached: [], activeEngines: [], throttle: 0 }; };
+  const hard = loadGame(fakeStore()); hard.open(TWO); const hardState = DROP(hard);
+  const rough = loadGame(fakeStore()); rough.open(TWO);
+  check(rough.fn("restoreVessel")(clone(hardState)).ok && rough.run("sim.grace") === rough.run("LOAD_GRACE"), "restoring starts the grace period (" + rough.run("LOAD_GRACE") + " s)");
+  rough.step(60);
+  check(rough.run("sim.parts.length") === 6 && rough.run("sim.parts.every(p => p.joint === null || p.joint)") && rough.run("sim.parts.every(p => !p.debris)"), "dropped onto the ground at 40 m/s one second after loading: nothing breaks");
+  const bare = loadGame(fakeStore()); bare.open(TWO); bare.fn("restoreVessel")(clone(hardState)); bare.run("sim.grace = 0"); bare.step(60);
+  check(bare.run("sim.parts.some(p => p.debris)") || bare.run("sim.parts.length") < 6 || bare.run("sim.parts.some(p => !p.joint && p.def.id !== 'tank2')"), "the same drop with no grace period does break parts (so the test above means something)");
+  rough.step(200);
+  check(rough.run("sim.grace") <= 0, "and the grace period ends after its " + rough.run("LOAD_GRACE") + " seconds");
+}
+
 /* ---- 3. the restored flight flies on the same ---- */
 console.log("\n3. The restored flight flies on the same as the one it came from");
 A.run("controls.throttle = 1"); B.run("controls.throttle = 1");

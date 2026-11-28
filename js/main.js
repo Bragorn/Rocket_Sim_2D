@@ -50,16 +50,19 @@ cv.addEventListener("mousedown", function (e) {                // the buttons in
   if (e.button !== 0 || paused) return;
   const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
   for (const b of barButtons) if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { b.fn(); return; }
+  if (mapMode && typeof mapMouseDown === "function") mapMouseDown(x, y);          // a vessel on the map, or the Switch button (mapvessels.js)
 });
 
 let last = performance.now(), acc = 0;
+let drawFailed = false;
 function frame(now) {
+  requestAnimationFrame(frame);                              // the next frame is booked first, so one bad frame can never stop the game for good
   const dtFrame = Math.min(0.1, (now - last) / 1000);
   last = now;
   perf.frame += (dtFrame * 1000 - perf.frame) * 0.05;
   const t0 = performance.now();
   let n = 0;
-  if (!paused) {
+  if (!paused && !sessionBlocked) {
     acc += dtFrame * warp;
     while (acc >= DT && n < 10 * warp && performance.now() - t0 < STEP_BUDGET_MS) { stepSim(); acc -= DT; n++; }
     if (acc >= DT) acc = 0;                                  // drop the backlog instead of spiralling
@@ -68,15 +71,19 @@ function frame(now) {
     flightAutosave(now);                                     // and the rocket is saved now and then
   } else acc = 0;
   const t1 = performance.now();
-  updateView(dtFrame);
-  draw();
+  try { updateView(dtFrame); draw(); drawFailed = false; }
+  catch (err) {                                              // something could not be drawn: say so once, and drop out of the map (the most likely place) instead of freezing
+    if (!drawFailed) { console.error(err); log("Display problem: " + err.message, "warning"); }
+    drawFailed = true;
+    if (mapMode) mapMode = false;
+  }
   const t2 = performance.now();
   perf.sim += ((t1 - t0) - perf.sim) * 0.05; perf.draw += ((t2 - t1) - perf.draw) * 0.05; perf.steps = n;
-  requestAnimationFrame(frame);
 }
 
 const launched = designFromHash(location.hash);                 // the builder opens this page with the design in the address
 for (const msg of launched.problems) log("DESIGN: " + msg, "warning");
+sessionInstall();                                                    // one window at a time: if another has the game this one is blocked and does not run or save
 let currentDesign = launched.design || DESIGN;                      // what is on the pad now (the menu sends it back to the builder)
 let opening = null;                                                  // the vessel taken from the universe, if there is one: { id, design, state, notes }
 if (launched.design) ROCKET = assemble(launched.design);             // a design in the address: a free test flight, not kept

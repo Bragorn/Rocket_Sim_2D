@@ -24,6 +24,7 @@ let flightVesselId = null;          // the universe vessel being flown, or null 
 let flightSavedKey = "";            // what was last written, so nothing is written again if nothing changed
 let flightPending = 0;              // seconds of physics since the universe clock was last moved on
 let flightNextSave = 0;             // when (performance.now) the next automatic save is due
+let flightClockBase = 0;            // the universe clock as it was last saved or loaded (flightPending is the physics time since)
 let flightCalm = 0;                 // seconds (physics time) the rocket has been calm: still, steady, throttle off, touching the ground
 let flightRelaunch = false;         // true after a kept vessel was recovered: "Launch again" may put the same design back on the pad as a new vessel
 const FLIGHT_SAVE_EVERY = 5000;     // ms between automatic saves while flying
@@ -40,6 +41,11 @@ function flightStatusNow() {
   return arc <= PAD_RADIUS ? "pad" : "landed";
 }
 
+/* A rocket that has not been touched since it was put on the pad: nothing fired, not in the air, nothing dropped. */
+function flightIsUntouched() {
+  return !sim.airborne && !sim.started && !sim.flown && sim.stageNext === 0 && controls.throttle === 0 && !sim.parts.some(function (q) { return q.debris; });
+}
+
 function captureVessel() {          // { status, state }; state is null while the rocket is untouched on the pad
   const b = sim.hull.body, p = b.getPosition(), v = b.getLinearVelocity(), status = flightStatusNow();
   const fuel = {}, lit = [], gone = [];
@@ -48,8 +54,7 @@ function captureVessel() {          // { status, state }; state is null while th
     if (q.debris) gone.push(q.def.id);
     else if (q.def.kind === "engine" && q.active) lit.push(q.def.id);
   }
-  const untouched = !sim.airborne && !sim.started && !sim.flown && sim.stageNext === 0 && controls.throttle === 0 && gone.length === 0;
-  if (untouched) return { status: "pad", state: null };
+  if (flightIsUntouched()) return { status: "pad", state: null };
   return { status: status, state: {
     pos: { x: p.x, y: p.y }, vel: { x: v.x, y: v.y }, angle: b.getAngle(), angVel: b.getAngularVelocity(),
     fuel: fuel, stageNext: sim.stageNext, activeEngines: lit, detached: gone, throttle: controls.throttle, damping: controls.damping,
@@ -98,6 +103,7 @@ function restoreVessel(state) {
   sim.pvx = state.vel.x; sim.pvy = state.vel.y;               // so the acceleration readout does not jump on the first step
   sim.rho = airDensity(Math.hypot(state.pos.x, state.pos.y) - R);   // the engines read the air of the step before: without this the first step runs on sea-level air
 
+  sim.grace = LOAD_GRACE;                                     // loading never damages: no part breaks for the first few seconds
   controls.throttle = state.throttle || 0;
   controls.damping = state.damping !== false;
   sim.t = state.clock || 0;
@@ -123,11 +129,34 @@ function flightLoadActive() {
   const bad = validateDesign(v.design);
   if (bad.length) { out.notes.push(v.name + " cannot be loaded: " + bad[0] + ". Nothing was changed. This is a free test flight."); return out; }
   out.id = v.id; out.design = v.design; out.state = v.state; out.status = v.status;
+  flightClockBase = u.clock;
+  if (v.status === "orbit" && v.state && isFinite(v.epoch) && u.clock > v.epoch) out.state = railsStateAt(v.state, u.clock - v.epoch);   // it kept going round while it was left
   return out;
 }
 
 /* Start keeping vessel `id`. `status` is what it was when it was loaded: one that was safe (pad, landed, orbit) starts out counted as calm,
    so a vessel you have only just resumed can be left again straight away. */
+function flightUniverseClock() { return flightClockBase + flightPending; }   // the universe clock right now
+
+/* The other vessels, for the map: { clock, vessels: [{ id, name, status, state, epoch, where, pos, vel, orbit }] }. pos is where each one is at the universe
+   time now (rails.js moves the ones in orbit); orbit is the points of its orbit for drawing, or null. The one being flown is left out. */
+function flightMapVessels() {
+  const none = { clock: 0, vessels: [] };
+  if (typeof universeLoad !== "function") return none;
+  const r = universeLoad();
+  if (!r.universe) return none;
+  const clock = r.universe.clock + (flightVesselId ? flightPending : 0);
+  const list = [];
+  for (const v of r.universe.vessels) {
+    if (v.id === flightVesselId) continue;
+    const at = vesselStateAt(v, clock);
+    list.push({ id: v.id, name: v.name, status: v.status, state: v.state, epoch: v.epoch, pos: at.pos, vel: at.vel,
+                where: vesselWhere({ status: v.status, state: v.state ? Object.assign({}, v.state, { pos: at.pos, vel: at.vel || v.state.vel }) : null }),
+                orbit: v.status === "orbit" && v.state ? railsOrbitPoints(v.state, 180) : null });
+  }
+  return { clock: clock, vessels: list };
+}
+
 function flightAttach(id, status) {
   flightVesselId = id; flightSavedKey = ""; flightPending = 0; flightNextSave = 0;
   flightCalm = status && status !== "flying" ? LEAVE_SETTLE : 0;
@@ -180,6 +209,7 @@ function flightLeaveProblems() {
    leaving it (the menu asks first). */
 function flightCanLeave() {
   if (!flightVesselId) return { ok: true, reasons: [], where: null };
+  if (flightIsUntouched()) return { ok: true, reasons: [], where: "pad" };            // nothing has happened to it: there is nothing to wait for
   const q = flightLeaveProblems(), why = q.why.slice();
   let where = q.where;
   if (why.length === 0 && where === "ground" && flightCalm < LEAVE_SETTLE) { why.push("it is still settling (keep it still for " + (LEAVE_SETTLE - flightCalm).toFixed(1) + " more seconds)"); where = null; }
@@ -193,6 +223,19 @@ function flightLeave() {
   if (!flightVesselId) return { ok: true, problem: null, reasons: [] };
   const s = persistFlight(true, { revert: false });
   return s.ok ? { ok: true, problem: null, reasons: [] } : { ok: false, problem: s.problem, reasons: [s.problem] };
+}
+
+/* An untouched rocket going back to the builder is taken off the pad and out of the universe: it comes back to the builder with you,
+   the same as if it had never been launched. */
+function flightUnload() {
+  if (!flightVesselId || typeof universeLoad !== "function") return { ok: false, problem: "this flight is not kept" };
+  const r = universeLoad();
+  if (!r.universe) return { ok: false, problem: "the saved universe is not there to update" };
+  let u = universeRemoveVessel(r.universe, flightVesselId).universe;
+  u = universeAdvance(u, flightPending);
+  const s = universeSave(u);
+  if (s.ok) flightDetach();
+  return s;
 }
 
 /* Leave this rocket and make vessel `id` the active one. The page then reloads into it (it opens the active vessel). */
@@ -232,10 +275,10 @@ function persistFlight(force, extra) {
   const r = universeLoad();
   if (!r.universe) return { ok: false, problem: "the saved universe is not there to update" };
   if (!universeVessel(r.universe, flightVesselId)) return { ok: false, problem: "this vessel is no longer in the universe" };
-  let u = universeUpdateVessel(r.universe, flightVesselId, Object.assign({ status: cap.status, state: cap.state }, extra)).universe;
-  u = universeAdvance(u, flightPending);
+  let u = universeAdvance(r.universe, flightPending);
+  u = universeUpdateVessel(u, flightVesselId, Object.assign({ status: cap.status, state: cap.state, epoch: u.clock }, extra)).universe;   // (epoch: the time this state belongs to, for rails.js)
   const s = universeSave(u);
-  if (s.ok) { flightSavedKey = key; flightPending = 0; }
+  if (s.ok) { flightSavedKey = key; flightPending = 0; flightClockBase = u.clock; }
   return s;
 }
 

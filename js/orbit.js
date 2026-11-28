@@ -16,6 +16,6 @@ function orbitInfo(p, v) {
   if (e < 1e-9) { ex = p.x / r; ey = p.y / r; } else { ex /= e; ey /= e; }   // direction of the lowest point
   const a = bound ? -MU / (2 * energy) : Infinity;
   return { r: r, e: e, ex: ex, ey: ey, dir: h >= 0 ? 1 : -1, bound: bound, pLat: pLat,
-           rp: pLat / (1 + e), ra: bound ? pLat / (1 - e) : Infinity,
+           rp: pLat / (1 + e), ra: bound ? a * (1 + e) : Infinity,         // (a * (1 + e), not pLat / (1 - e): at rest or going straight up that is 0 / 0, which is NaN and broke the map)
            period: bound ? 2 * Math.PI * Math.sqrt(a * a * a / MU) : null };
 }

@@ -41,7 +41,9 @@ function toggleMap() {
   mapMode = !mapMode;
   if (mapMode) {                     // fit the whole orbit (or at least the planet) on screen
     const p = sim.hull.body.getPosition(), o = orbitInfo(p, sim.hull.body.getLinearVelocity());
-    const far = Math.max(R * 1.15, Math.min(o.ra, 8 * R), o.r);
+    if (typeof mapVesselsReset === "function") mapVesselsReset();
+    let far = Math.max(R * 1.15, Math.min(isFinite(o.ra) ? o.ra : 8 * R, 8 * R), o.r);
+    if (typeof mapVesselsExtent === "function") far = Math.min(8 * R, Math.max(far, mapVesselsExtent()));   // zoom out to take in the other vessels too
     mapS = mapSt = 0.40 * Math.min(W, Hh) / (far + o.r);       // the view is centred on the rocket, so the far side of the orbit is up to (its height + the orbit's size) away
   }
 }
@@ -386,6 +388,7 @@ function drawMap(o) {                                        // the map: centred
     c.fillText("Ap " + fmtAlt(o.ra - R - sim.refOffset), ap[0] + 7, ap[1]);
   }
 
+  if (typeof drawMapVessels === "function") drawMapVessels(c, M);   // the other vessels, in orbit or on the ground (mapvessels.js)
   const a = sim.hull.body.getAngle();                        // the rocket: an arrow pointing the way its nose points
   const m = M(p.x, p.y), dx = -Math.sin(a), dy = -Math.cos(a);
   c.fillStyle = "#e74c3c"; c.strokeStyle = "#fff"; c.lineWidth = 1.5;

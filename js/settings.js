@@ -29,7 +29,7 @@ const FIN_CN = 5.0;                  // how hard a fin pushes sideways per radia
 const FIN_STALL = 0.35;              // past about 20 degrees of angle the fin stops gaining push
 
 /* ---- space ---- */
-const SPACE_ALT = 70000;             // above this the air is too thin to matter: "reached space" and "in orbit" are measured from here
+const SPACE_ALT = 70000;             // the top of the air: above this there is none at all (aero.js airDensity), so "reached space" and "in orbit" are measured from here
 
 /* ---- the pad ---- */
 const PAD_GAP = 0.02;                // the lowest point of the rocket starts this far above the ground, m
@@ -38,6 +38,7 @@ const LEAVE_SETTLE = 2;              // s: a rocket on the ground must have been
 const LEAVE_SPEED = 0.3;             // m/s: on the ground it must be moving slower than this to be left (and to count as calm)
 const LEAVE_SPIN = 0.05;             // rad/s: and turning slower than this (about 3 degrees a second); the same limit applies in orbit
 const LEAVE_ORBIT_MARGIN = 5000;     // m: the lowest point of an orbit must clear the top of the air (SPACE_ALT) by this much for the vessel to be left there
+const LOAD_GRACE = 3;                // s: a rocket put back from a save cannot break for this long (a rocket left on the ground must never break when it is loaded)
 const PAD_RADIUS = 20;               // m: a rocket on the ground within this distance of where it started counts as standing on the pad (universe.js: only one at a time)
 
 /* ---- breaking ---- */

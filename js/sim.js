@@ -125,10 +125,12 @@ function breakPart(p) {
 }
 
 function checkImpacts() {
-  const hits = [];
+  const hits = [], safe = sim.grace > 0;                // just put back from a save: nothing breaks for the first LOAD_GRACE seconds
+  if (safe) sim.grace -= DT;
   for (const p of sim.parts) {
     const J = p.hitJ, vc = p.hitV;
     p.hitJ = 0; p.hitV = 0;
+    if (safe) { p.stress = 0; continue; }
     p.stress *= STRESS_DECAY;                         // how hard the part was hit, as a share of what it can take: jumps up on an impact, eases back down (render.js tints the part with it)
     if (J <= 0 || p.debris || !p.joint || vc < MIN_IMPACT_SPEED) continue;
     const E = 0.5 * J * vc, cap = impactCapacity(p.def);

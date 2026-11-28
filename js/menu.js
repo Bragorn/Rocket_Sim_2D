@@ -66,9 +66,14 @@ function doRevert() {
 
 function doBuilder() {
   if (typeof flightTracked === "function" && flightTracked()) {
-    const left = flightLeave();                                                         // saves it where it is, for good, if it is safe to leave
-    if (!left.ok) { log("Can't leave: " + left.problem, "warning"); showPanel("main"); return; }
-    flightDetach();
+    if (flightIsUntouched()) {                                                          // never touched: it comes back to the builder with you, not left on the pad
+      const off = flightUnload();
+      if (!off.ok) { log("Can't leave: " + off.problem, "warning"); showPanel("main"); return; }
+    } else {
+      const left = flightLeave();                                                       // saves it where it is, for good, if it is safe to leave
+      if (!left.ok) { log("Can't leave: " + left.problem, "warning"); showPanel("main"); return; }
+      flightDetach();
+    }
   } else if (!flightEnded && sim.flown && !confirm("This is a test flight and is not kept. Leave it? The rocket will be lost.")) return;
   location.href = "builder.html" + designToHash(currentDesign);
 }
@@ -122,6 +127,7 @@ function panelMain(box) {
   const leave = !flightEnded && typeof flightCanLeave === "function" ? flightCanLeave() : { ok: true, reasons: [] };
   mbutton("Back to builder", doBuilder, !leave.ok);
   for (const why of leave.reasons) box.appendChild(mel("div", "mnote", "Can't leave: " + why));
+  if (leave.ok && !flightEnded && typeof flightIsUntouched === "function" && flightTracked() && flightIsUntouched()) box.appendChild(mel("div", "mnote", "It has not flown: it goes back to the builder with you."));
   if (typeof universeLoad === "function") mbutton("Vessels", function () { showPanel("vessels"); });
   if (!flightEnded) {
     const rc = recoverable();
